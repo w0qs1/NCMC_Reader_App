@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.w0qs1.ncmcreader.data.NcmcCard
 import com.w0qs1.ncmcreader.data.NcmcDatabaseHelper
 import com.w0qs1.ncmcreader.data.NcmcOperatorDatabaseHelper
+import com.w0qs1.ncmcreader.data.RawRecordItem
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import com.w0qs1.ncmcreader.nfc.NcmcCardReader
 import com.w0qs1.ncmcreader.nfc.roundTo2Decimals
@@ -175,7 +176,7 @@ Disclaimer:
 
     fun exportCardsToJson(context: Context, uri: Uri, selectedPans: List<String>? = null, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            var success = false
+            var success: Boolean
             var resultMessage = ""
             try {
                 val allCards = dbHelper.getAllCards()
@@ -202,7 +203,7 @@ Disclaimer:
 
                         val historyArray = JSONArray()
                         for (item in card.ticketHistory) {
-                            val resolved = if (item.acquirerId > 0 || item.operatorId > 0 || item.terminalId > 0) {
+                            val resolved = if ((item.acquirerId > 0) || (item.operatorId > 0) || (item.terminalId > 0)) {
                                 opDbHelper.resolveStation(item.acquirerId, item.operatorId, item.terminalId)
                             } else null
 
@@ -222,6 +223,25 @@ Disclaimer:
                             historyArray.put(itemObj)
                         }
                         put("ticketHistory", historyArray)
+
+                        val fileSystemArray = JSONArray()
+                        val groupedBySfi = card.rawRecords.groupBy { it.sfi }
+                        for ((sfi, records) in groupedBySfi.entries.sortedBy { it.key }) {
+                            val sfiObj = JSONObject().apply {
+                                put("sfi", sfi)
+                                val recordsArray = JSONArray()
+                                for (rec in records.sortedBy { it.recordNum }) {
+                                    val recObj = JSONObject().apply {
+                                        put("record", rec.recordNum)
+                                        put("rawHex", rec.rawHex)
+                                    }
+                                    recordsArray.put(recObj)
+                                }
+                                put("records", recordsArray)
+                            }
+                            fileSystemArray.put(sfiObj)
+                        }
+                        put("fileSystem", fileSystemArray)
                     }
                     jsonArray.put(cardObj)
                 }
@@ -301,6 +321,33 @@ Disclaimer:
                             }
                         }
 
+                        val rawRecordsList = mutableListOf<RawRecordItem>()
+                        val fileSystemArray = cardObj.optJSONArray("fileSystem")
+                        if (fileSystemArray != null) {
+                            for (j in 0 until fileSystemArray.length()) {
+                                val sfiObj = fileSystemArray.getJSONObject(j)
+                                val sfi = sfiObj.optInt("sfi", 0)
+                                val recordsArray = sfiObj.optJSONArray("records")
+                                if (recordsArray != null && sfi > 0) {
+                                    for (k in 0 until recordsArray.length()) {
+                                        val recObj = recordsArray.getJSONObject(k)
+                                        val recordNum = recObj.optInt("record", 0)
+                                        val rawHex = recObj.optString("rawHex", "")
+                                        if (recordNum > 0 && rawHex.isNotBlank()) {
+                                            rawRecordsList.add(
+                                                RawRecordItem(
+                                                    cardPan = pan,
+                                                    sfi = sfi,
+                                                    recordNum = recordNum,
+                                                    rawHex = rawHex
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         val card = NcmcCard(
                             pan = pan,
                             expiryDate = expiryDate,
@@ -311,6 +358,7 @@ Disclaimer:
                             currentBalance = currentBalance,
                             lastScannedAt = lastScannedAt,
                             ticketHistory = historyList,
+                            rawRecords = rawRecordsList,
                             cardTitle = cardTitle
                         )
 

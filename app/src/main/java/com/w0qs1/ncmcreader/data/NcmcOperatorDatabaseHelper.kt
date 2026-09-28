@@ -116,10 +116,10 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                 val opName = cursor.getString(1)
                 val mode = cursor.getString(2)
                 cursor.close()
-                if (stopName.isNotBlank()) {
-                    return ResolvedStation(opName, mode, stopName)
+                return if (stopName.isNotBlank()) {
+                    ResolvedStation(opName, mode, stopName)
                 } else {
-                    return ResolvedStation(opName, mode, "Terminal #0x$termHex")
+                    ResolvedStation(opName, mode, "Terminal #0x$termHex")
                 }
             }
             cursor.close()

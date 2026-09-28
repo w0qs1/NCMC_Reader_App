@@ -101,7 +101,7 @@ object TlvParser {
                 else -> 0
             }
 
-            if (offset + length > data.size || length < 0) {
+            if (offset + length > data.size) {
                 break
             }
 
@@ -112,7 +112,7 @@ object TlvParser {
             val children = if (isConstructed && valueBytes.isNotEmpty()) {
                 try {
                     parse(valueBytes)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     emptyList()
                 }
             } else {

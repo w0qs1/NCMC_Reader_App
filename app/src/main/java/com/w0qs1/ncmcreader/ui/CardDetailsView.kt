@@ -51,7 +51,7 @@ fun CardDetailsView(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = if (card.ncmcVersion == "-" || card.ncmcVersion == "NCMC Not Enabled") "NCMC Not Enabled" else "Version " + card.ncmcVersion,
+                        text = if ((card.ncmcVersion == "-") || (card.ncmcVersion == "NCMC Not Enabled")) "NCMC Not Enabled" else "Version " + card.ncmcVersion,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -92,7 +92,7 @@ fun CardDetailsView(
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
                         Text(
-                            text = "${card.atc}",
+                            text = card.atc.toString(),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )

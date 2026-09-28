@@ -40,6 +40,26 @@ data class ApduResponse(val data: ByteArray, val sw1: Int, val sw2: Int) {
     val sw: Int = (sw1 shl 8) or sw2
     val isSuccess: Boolean = sw == 0x9000
 
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as ApduResponse
+
+        if (!data.contentEquals(other.data)) return false
+        if (sw1 != other.sw1) return false
+        if (sw2 != other.sw2) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = data.contentHashCode()
+        result = 31 * result + sw1
+        result = 31 * result + sw2
+        return result
+    }
+
     companion object {
         fun fromBytes(response: ByteArray): ApduResponse {
             if (response.size < 2) {

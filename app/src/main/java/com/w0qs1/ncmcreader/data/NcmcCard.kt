@@ -14,7 +14,18 @@ data class TicketHistoryItem(
     val rawHex: String = "",
     val acquirerId: Int = 0,
     val operatorId: Int = 0,
-    val terminalId: Int = 0
+    val terminalId: Int = 0,
+)
+
+/**
+ * Represents a raw SFI record read from the card file system.
+ */
+data class RawRecordItem(
+    val id: Long = 0,
+    val cardPan: String = "",
+    val sfi: Int,
+    val recordNum: Int,
+    val rawHex: String,
 )
 
 /**
@@ -30,5 +41,6 @@ data class NcmcCard(
     val currentBalance: Double, // in Rupees (e.g., 150.50)
     val lastScannedAt: Long = System.currentTimeMillis(),
     val ticketHistory: List<TicketHistoryItem> = emptyList(),
-    val cardTitle: String = "RuPay NCMC Card"
+    val rawRecords: List<RawRecordItem> = emptyList(),
+    val cardTitle: String = "RuPay NCMC Card",
 )

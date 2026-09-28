@@ -1,6 +1,7 @@
 package com.w0qs1.ncmcreader
 
 import com.w0qs1.ncmcreader.data.NcmcCard
+import com.w0qs1.ncmcreader.data.RawRecordItem
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -59,5 +60,28 @@ class NcmcDatabaseTest {
         assertEquals(43, card2.atc)
         assertEquals(2, card2.ticketHistory.size)
         assertEquals("EXIT", card2.ticketHistory[1].ticketType)
+    }
+
+    @Test
+    fun testRawRecordsInNcmcCardModel() {
+        val rawRecs = listOf(
+            RawRecordItem(sfi = 1, recordNum = 1, rawHex = "7081AC5A088181942506819397"),
+            RawRecordItem(sfi = 16, recordNum = 1, rawHex = "010203040506")
+        )
+
+        val card = NcmcCard(
+            pan = "6082 1234 5678 9012",
+            expiryDate = "2028-12-31",
+            effectiveDate = "2023-01-01",
+            ncmcVersion = "v1.0",
+            cardLanguage = "en",
+            atc = 42,
+            currentBalance = 150.50,
+            rawRecords = rawRecs
+        )
+
+        assertEquals(2, card.rawRecords.size)
+        assertEquals(1, card.rawRecords[0].sfi)
+        assertEquals(16, card.rawRecords[1].sfi)
     }
 }

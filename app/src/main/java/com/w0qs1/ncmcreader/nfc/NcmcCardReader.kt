@@ -3,6 +3,7 @@ package com.w0qs1.ncmcreader.nfc
 import android.nfc.tech.IsoDep
 import android.util.Log
 import com.w0qs1.ncmcreader.data.NcmcCard
+import com.w0qs1.ncmcreader.data.RawRecordItem
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -126,7 +127,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             rawAppName.contains("Prepaid", ignoreCase = true) -> "RuPay Prepaid"
             rawAppName.contains("Debit", ignoreCase = true) -> "RuPay Debit"
             rawAppName.contains("Credit", ignoreCase = true) -> "RuPay Credit"
-            else -> if (rawAppName.isEmpty()) "RuPay" else rawAppName
+            else -> rawAppName.ifEmpty { "RuPay" }
         }
 
         // 3. READ ATC Value (Tag 9F36) BEFORE GPO
@@ -148,9 +149,10 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             Log.d(TAG, "GET DATA 9F36 ATC read skipped or failed: ${e.message}")
         }
 
-        // 4. PERFORM GPO with PDOL -> Extract Tag DF33 Service Balance
+        // 4. PERFORM GPO with PDOL -> Extract Tag DF33 Service Balance & AFL (Tag 94)
         var df33BalanceRs: Double? = null
         var hasDf33Service = false
+        var aflEntries = emptyList<AflEntry>()
 
         try {
             val gpoApdu = ApduUtils.buildPdolGpoCommand()
@@ -165,65 +167,98 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                     df33BalanceRs = parseDf33Balance(df33Elem.value)
                     Log.d(TAG, "Extracted Tag DF33 Balance: ₹$df33BalanceRs")
                 }
+
+                aflEntries = parseAflFromGpo(gpoResp.data)
+                Log.d(TAG, "Parsed ${aflEntries.size} AFL entries from GPO: $aflEntries")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error executing GPO command: ${e.message}", e)
         }
 
-        // 5. READ Card Information -> PAN, Expiry Date & Effective Date from SFI 1 and SFI 2
+        // 5. READ Card Information -> PAN, Expiry Date & Effective Date from AFL ranges and fallback SFIs
         var panStr: String? = null
         var effectiveDateStr = "N/A"
         var expiryDateStr = "N/A"
+        val rawScannedRecords = mutableListOf<RawRecordItem>()
 
-        for (sfi in listOf(1, 2)) {
-            for (rec in 1..3) {
-                try {
-                    val recApdu = ApduUtils.createReadRecordApdu(rec, sfi)
-                    val recResp = ApduResponse.fromBytes(isoDep.transceive(recApdu))
-                    if (recResp.isSuccess && recResp.data.isNotEmpty()) {
-                        Log.d(TAG, "Read Card Info SFI $sfi Record $rec: ${recResp.data.toHexString()}")
-                        val tlvs = TlvParser.parse(recResp.data)
+        // Dynamically build list of SFI and Record pairs to read from AFL
+        val recordsToRead = mutableListOf<Pair<Int, Int>>()
+        for (entry in aflEntries) {
+            for (rec in entry.firstRecord..entry.lastRecord) {
+                val pair = entry.sfi to rec
+                if (pair !in recordsToRead) {
+                    recordsToRead.add(pair)
+                }
+            }
+        }
 
-                        if (!hasDf33Service) {
-                            val df33Elem = TlvParser.findElement(tlvs, "DF33")
-                            if (df33Elem != null) hasDf33Service = true
+        // Add default fallback SFIs 1..4 records 1..3 if not already included
+        val defaultRecords = listOf(
+            1 to 1, 1 to 2, 1 to 3,
+            2 to 1, 2 to 2, 2 to 3,
+            3 to 1, 3 to 2, 3 to 3,
+            4 to 1, 4 to 2, 4 to 3
+        )
+        for (pair in defaultRecords) {
+            if (pair !in recordsToRead) {
+                recordsToRead.add(pair)
+            }
+        }
+
+        for ((sfi, rec) in recordsToRead) {
+            try {
+                val recApdu = ApduUtils.createReadRecordApdu(rec, sfi)
+                val recResp = ApduResponse.fromBytes(isoDep.transceive(recApdu))
+                if (recResp.isSuccess && recResp.data.isNotEmpty()) {
+                    Log.d(TAG, "Read Card Info SFI $sfi Record $rec: ${recResp.data.toHexString()}")
+                    rawScannedRecords.add(
+                        RawRecordItem(
+                            sfi = sfi,
+                            recordNum = rec,
+                            rawHex = recResp.data.toHexString()
+                        )
+                    )
+                    val tlvs = TlvParser.parse(recResp.data)
+
+                    if (!hasDf33Service) {
+                        val df33Elem = TlvParser.findElement(tlvs, "DF33")
+                        if (df33Elem != null) hasDf33Service = true
+                    }
+
+                    val panElem = TlvParser.findElement(tlvs, "5A")
+                    if (panElem != null && panStr == null) {
+                        panStr = TlvParser.decodePan(panElem.value)
+                    }
+
+                    val effElem = TlvParser.findElement(tlvs, "5F25")
+                    if (effElem != null && effectiveDateStr == "N/A") {
+                        effectiveDateStr = TlvParser.parseDate(effElem.value)
+                    }
+
+                    val expElem = TlvParser.findElement(tlvs, "5F24")
+                    if (expElem != null && expiryDateStr == "N/A") {
+                        expiryDateStr = TlvParser.parseDate(expElem.value)
+                    }
+
+                    val tr2Elem = TlvParser.findElement(tlvs, "57")
+                    if (tr2Elem != null && (panStr == null || expiryDateStr == "N/A")) {
+                        if (panStr == null) {
+                            panStr = TlvParser.decodeTrack2Pan(tr2Elem.value)
                         }
-
-                        val panElem = TlvParser.findElement(tlvs, "5A")
-                        if (panElem != null && panStr == null) {
-                            panStr = TlvParser.decodePan(panElem.value)
-                        }
-
-                        val effElem = TlvParser.findElement(tlvs, "5F25")
-                        if (effElem != null && effectiveDateStr == "N/A") {
-                            effectiveDateStr = TlvParser.parseDate(effElem.value)
-                        }
-
-                        val expElem = TlvParser.findElement(tlvs, "5F24")
-                        if (expElem != null && expiryDateStr == "N/A") {
-                            expiryDateStr = TlvParser.parseDate(expElem.value)
-                        }
-
-                        val tr2Elem = TlvParser.findElement(tlvs, "57")
-                        if (tr2Elem != null && (panStr == null || expiryDateStr == "N/A")) {
-                            if (panStr == null) {
-                                panStr = TlvParser.decodeTrack2Pan(tr2Elem.value)
-                            }
-                            if (expiryDateStr == "N/A") {
-                                val tr2Hex = tr2Elem.value.toHexString().uppercase(Locale.US)
-                                if ("D" in tr2Hex) {
-                                    val rest = tr2Hex.split("D", "=")[1]
-                                    if (rest.length >= 4) {
-                                        val expYy = rest.substring(0, 2)
-                                        val expMm = rest.substring(2, 4)
-                                        expiryDateStr = "20$expYy-$expMm"
-                                    }
+                        if (expiryDateStr == "N/A") {
+                            val tr2Hex = tr2Elem.value.toHexString().uppercase(Locale.US)
+                            if ("D" in tr2Hex) {
+                                val rest = tr2Hex.split("D", "=")[1]
+                                if (rest.length >= 4) {
+                                    val expYy = rest.substring(0, 2)
+                                    val expMm = rest.substring(2, 4)
+                                    expiryDateStr = "20$expYy-$expMm"
                                 }
                             }
                         }
                     }
-                } catch (_: Exception) {}
-            }
+                }
+            } catch (_: Exception) {}
         }
 
         // 6. READ SFI 16 (Log Records 1..10) -> Decode Common Service Area & Language IF DF33 is present
@@ -231,6 +266,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val rawHistEvents = mutableListOf<RawHistEvent>()
         var detectedLanguage: String? = null
         var csaVersion: String? = null
+        val effectiveDateMillis = parseEffectiveDateMillis(effectiveDateStr)
 
         if (hasDf33Service) {
             for (record in 1..10) {
@@ -240,16 +276,21 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                     if (recResp.isSuccess && recResp.data.isNotEmpty()) {
                         val data = recResp.data
                         Log.d(TAG, "Read SFI 16 Record $record: ${data.toHexString()}")
+                        rawScannedRecords.add(
+                            RawRecordItem(
+                                sfi = 16,
+                                recordNum = record,
+                                rawHex = data.toHexString()
+                            )
+                        )
 
-                        if (data.size >= CSA_LENGTH) {
-                            val csaData = data.copyOfRange(data.size - CSA_LENGTH, data.size)
+                        val csaData = extractCsaBytes(data, effectiveDateMillis)
+                        if (csaData != null) {
                             val (valEvent, histRecords, lang, ver) = decodeCommonServiceArea(csaData, record)
                             if (detectedLanguage == null) detectedLanguage = lang
                             if (csaVersion == null && ver.isNotEmpty()) csaVersion = ver
 
-                            if (valEvent != null) {
-                                rawValEvents.add(valEvent)
-                            }
+                            valEvent?.let { rawValEvents.add(it) }
                             rawHistEvents.addAll(histRecords)
                         }
                     } else if (recResp.sw1 == 0x6A || recResp.sw1 == 0x6C) {
@@ -267,7 +308,6 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val finalNcmcVersion = if (hasDf33Service) (csaVersion ?: "3.1") else "-"
         val finalLanguage = if (hasDf33Service) (detectedLanguage ?: "English") else "-"
 
-        val effectiveDateMillis = parseEffectiveDateMillis(effectiveDateStr)
         val ticketHistory = if (hasDf33Service) {
             processCleanHistory(
                 rawValEvents = rawValEvents,
@@ -282,9 +322,12 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val rawBalance = if (hasDf33Service) (df33BalanceRs ?: (ticketHistory.firstOrNull()?.balance ?: 0.0)) else 0.0
         val finalBalance = rawBalance.roundTo2Decimals()
 
+        val finalPan = panStr ?: "NCMC-CARD-${(System.currentTimeMillis() % 1000000)}"
+        val finalRawRecords = rawScannedRecords.map { it.copy(cardPan = finalPan) }
+
         Log.d(TAG, "-------------------- EXTRACTED CARD DATA --------------------")
         Log.d(TAG, "Card Title: $cardTitle")
-        Log.d(TAG, "PAN: $panStr")
+        Log.d(TAG, "PAN: $finalPan")
         Log.d(TAG, "Effective Date: $effectiveDateStr")
         Log.d(TAG, "Expiry Date: $expiryDateStr")
         Log.d(TAG, "NCMC Version: $finalNcmcVersion")
@@ -293,10 +336,11 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         Log.d(TAG, "Current Balance: ₹$finalBalance")
         Log.d(TAG, "Has DF33 Service: $hasDf33Service")
         Log.d(TAG, "Parsed ${ticketHistory.size} transaction records")
+        Log.d(TAG, "Read ${finalRawRecords.size} raw SFI records")
         Log.d(TAG, "=============================================================")
 
         return NcmcCard(
-            pan = panStr ?: "NCMC-CARD-${(System.currentTimeMillis() % 1000000)}",
+            pan = finalPan,
             expiryDate = expiryDateStr,
             effectiveDate = effectiveDateStr,
             ncmcVersion = finalNcmcVersion,
@@ -305,6 +349,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             currentBalance = finalBalance,
             lastScannedAt = System.currentTimeMillis(),
             ticketHistory = ticketHistory,
+            rawRecords = finalRawRecords,
             cardTitle = cardTitle
         )
     }
@@ -319,6 +364,78 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun extractCsaBytes(data: ByteArray, effectiveDateMillis: Long): ByteArray? {
+        if (data.size < CSA_LENGTH) return null
+
+        val nowMillis = System.currentTimeMillis()
+        val maxAllowedMillis = nowMillis + 86400_000L // 24 hours tolerance for time zones / clock skew
+
+        // Sliding window: start from last 96 bytes, slide left 1 byte at a time
+        val startOffset = data.size - CSA_LENGTH
+        for (offset in startOffset downTo 0) {
+            val candidate = data.copyOfRange(offset, offset + CSA_LENGTH)
+            if (isValidCsaWindow(candidate, effectiveDateMillis, maxAllowedMillis)) {
+                return candidate
+            }
+        }
+
+        // Fallback to taking the last 96 bytes if sliding window check didn't match
+        return data.copyOfRange(data.size - CSA_LENGTH, data.size)
+    }
+
+    private fun isValidCsaWindow(
+        csaBytes: ByteArray,
+        effectiveDateMillis: Long,
+        maxAllowedMillis: Long
+    ): Boolean {
+        if (csaBytes.size != CSA_LENGTH) return false
+
+        // 1. Check Validation Event Txn Status (upper 4 bits at byte 20)
+        val valStatusByte = csaBytes[20].toInt() and 0xFF
+        val valTxnStatus = (valStatusByte ushr 4) and 0x0F
+        if (valTxnStatus > 3) { // Status must be 0b0000, 0b0001, 0b0010, or 0b0011
+            return false
+        }
+
+        // Check Validation Event Minutes (byte 10..12)
+        val valMinutes = readUInt24(csaBytes, 10)
+        if (valMinutes > 0) {
+            val valTimeMillis = effectiveDateMillis + (valMinutes.toLong() * 60 * 1000L)
+            if (valTimeMillis > maxAllowedMillis) {
+                return false
+            }
+        }
+
+        // 2. Check 4 History Records (17 bytes each starting at offset 21)
+        var hasValidSignal = valMinutes > 0
+        for (idx in 0 until 4) {
+            val offset = 21 + idx * 17
+            val hMinutes = readUInt24(csaBytes, offset + 6)
+            val hSeq = readUInt16(csaBytes, offset + 9)
+            val hTerm = readUInt24(csaBytes, offset + 3)
+
+            val balStatusBytes = readUInt24(csaBytes, offset + 13)
+            val hStatusCode = balStatusBytes and 0x0F
+            if (hStatusCode > 3) { // Status must be 0b0000, 0b0001, 0b0010, or 0b0011
+                return false
+            }
+
+            if (hMinutes > 0) {
+                val hTimeMillis = effectiveDateMillis + (hMinutes.toLong() * 60 * 1000L)
+                if (hTimeMillis > maxAllowedMillis) {
+                    return false
+                }
+                hasValidSignal = true
+            }
+
+            if (hSeq > 0 || hTerm > 0) {
+                hasValidSignal = true
+            }
+        }
+
+        return hasValidSignal
     }
 
     private fun decodeCommonServiceArea(
@@ -378,7 +495,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             val hBalBefore = (hBalBeforeRaw / 10.0).roundTo2Decimals()
 
             val hStatusCode = balStatusBytes and 0x0F
-            val hStatusStr = mapStatusString(hStatusCode)
+            val hStatusStr = mapStatusString(hStatusCode, hAmt)
 
             if (hMinutes > 0 || hSeq > 0 || hTerm > 0) {
                 val rawHex = csaBytes.copyOfRange(offset, offset + HISTORY_ENTRY_LENGTH).toHexString()
@@ -409,10 +526,12 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val version: String
     )
 
-    private fun mapStatusString(code: Int): String {
+    private fun mapStatusString(code: Int, amount: Double = 0.0): String {
         return when (code) {
-            0 -> "Exit"
-            1 -> "Entry"
+            // Code 0: If amount == 0.0, it's an Entry (fixing EEPROM bug for old entries). If amount > 0.0, it's Exit.
+            0 -> if (amount == 0.0) "Entry" else "Exit"
+            // Code 1: If amount > 0.0, it's an Exit (fixing cases where entry status code was set with non-zero fare).
+            1 -> if (amount > 0.0) "Exit" else "Entry"
             2 -> "Penalty Apply"
             3 -> "One Tap / Ticket"
             else -> "Transaction ($code)"
@@ -441,7 +560,15 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             val term = h?.terminalId ?: v?.terminalId ?: 0
             val amt = (h?.amount ?: 0.0).roundTo2Decimals()
             val balBefore = (h?.balBefore ?: 0.0).roundTo2Decimals()
-            val status = v?.statusStr ?: h?.statusStr ?: "Transaction"
+
+            // Prioritize history record status over active validation event status
+            var status = h?.statusStr ?: v?.statusStr ?: "Transaction"
+            if (amt > 0.0 && status == "Entry") {
+                status = "Exit"
+            } else if (amt == 0.0 && status == "Exit") {
+                status = "Entry"
+            }
+
             val seq = h?.seqNum ?: 0
             val hex = h?.rawHex ?: ""
 
@@ -536,4 +663,54 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         sdf.timeZone = TimeZone.getDefault()
         return sdf.format(Date(txTimeMillis))
     }
+}
+
+data class AflEntry(
+    val sfi: Int,
+    val firstRecord: Int,
+    val lastRecord: Int,
+    val offlineAuthRecords: Int
+)
+
+fun parseAflFromGpo(gpoData: ByteArray): List<AflEntry> {
+    val entries = mutableListOf<AflEntry>()
+    if (gpoData.isEmpty()) return entries
+
+    var aflBytes: ByteArray? = null
+
+    // Check Format 1 (Response Template Tag 0x80)
+    if (gpoData[0] == 0x80.toByte()) {
+        val parsedTlvs = TlvParser.parse(gpoData)
+        val elem80 = TlvParser.findElement(parsedTlvs, "80")
+        if (elem80 != null && elem80.value.size >= 6) {
+            aflBytes = elem80.value.copyOfRange(2, elem80.value.size)
+        }
+    }
+
+    // Check Format 2 (Response Template Tag 0x77) or Tag 94
+    if (aflBytes == null) {
+        val parsedTlvs = TlvParser.parse(gpoData)
+        val elem94 = TlvParser.findElement(parsedTlvs, "94")
+        if (elem94 != null) {
+            aflBytes = elem94.value
+        }
+    }
+
+    if (aflBytes != null) {
+        var i = 0
+        while (i + 3 < aflBytes.size) {
+            val b0 = aflBytes[i].toInt() and 0xFF
+            val sfi = b0 ushr 3
+            val firstRec = aflBytes[i + 1].toInt() and 0xFF
+            val lastRec = aflBytes[i + 2].toInt() and 0xFF
+            val authRecs = aflBytes[i + 3].toInt() and 0xFF
+
+            if (sfi in 1..31 && firstRec >= 1 && lastRec >= firstRec) {
+                entries.add(AflEntry(sfi, firstRec, lastRec, authRecs))
+            }
+            i += 4
+        }
+    }
+
+    return entries
 }

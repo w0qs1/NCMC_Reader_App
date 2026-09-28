@@ -3,6 +3,7 @@ package com.w0qs1.ncmcreader
 import com.w0qs1.ncmcreader.nfc.ApduUtils
 import com.w0qs1.ncmcreader.nfc.TlvParser
 import com.w0qs1.ncmcreader.nfc.hexToByteArray
+import com.w0qs1.ncmcreader.nfc.parseAflFromGpo
 import com.w0qs1.ncmcreader.nfc.toHexString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -76,5 +77,23 @@ class NcmcParserTest {
         assertTrue(gpoApdu.size > 10)
         assertEquals(0x80.toByte(), gpoApdu[0])
         assertEquals(0xA8.toByte(), gpoApdu[1])
+    }
+
+    @Test
+    fun testAflParserFromGpoFormat1And2() {
+        // Tag 94: AFL with 2 entries:
+        // Entry 1: 0x08 (SFI 1), Rec 1 to 2, Auth 0
+        // Entry 2: 0x10 (SFI 2), Rec 1 to 3, Auth 1
+        val gpoFormat2Hex = "770E8202000094080801020010010301".hexToByteArray()
+        val aflEntries = parseAflFromGpo(gpoFormat2Hex)
+
+        assertEquals(2, aflEntries.size)
+        assertEquals(1, aflEntries[0].sfi)
+        assertEquals(1, aflEntries[0].firstRecord)
+        assertEquals(2, aflEntries[0].lastRecord)
+
+        assertEquals(2, aflEntries[1].sfi)
+        assertEquals(1, aflEntries[1].firstRecord)
+        assertEquals(3, aflEntries[1].lastRecord)
     }
 }
