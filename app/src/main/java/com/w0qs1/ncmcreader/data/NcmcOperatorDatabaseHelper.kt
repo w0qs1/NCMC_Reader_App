@@ -4,14 +4,17 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
+import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URI
 import java.util.Locale
 
 data class ResolvedStation(
     val operatorName: String,
     val transitMode: String,
-    val stationName: String
+    val stationName: String,
 )
 
 class NcmcOperatorDatabaseHelper(private val context: Context) :
@@ -21,6 +24,9 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
         private const val TAG = "NCMC_OP_DB"
         private const val DATABASE_NAME = "ncmc.db"
         private const val DATABASE_VERSION = 2
+        private const val PREFS_NAME = "ncmc_op_db_prefs"
+        private const val KEY_ETAG = "db_etag"
+        private const val DB_GITHUB_URL = "https://raw.githubusercontent.com/w0qs1/NCMC_IDs/main/data/ncmc.db"
     }
 
     init {
@@ -61,6 +67,8 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
 
     private fun copyDatabaseFromAssetsIfPresent() {
         val dbFile = context.getDatabasePath(DATABASE_NAME)
+        if ((dbFile.exists()) && (dbFile.length() > 0)) return
+
         try {
             val assetManager = context.assets
             val list = assetManager.list("") ?: emptyArray()
@@ -81,6 +89,65 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
         } catch (e: Exception) {
             Log.d(TAG, "Asset $DATABASE_NAME not copied: ${e.message}")
         }
+    }
+
+    /**
+     * Asynchronously checks GitHub for an updated version of ncmc.db.
+     * If updated (HTTP 200 with new ETag), downloads and atomically updates local database.
+     */
+    fun checkForRemoteUpdate(onUpdated: (() -> Unit)? = null) {
+        Thread {
+            try {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val savedEtag = prefs.getString(KEY_ETAG, "") ?: ""
+
+                val url = URI(DB_GITHUB_URL).toURL()
+                val connection = url.openConnection() as HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+                connection.requestMethod = "GET"
+
+                if (savedEtag.isNotEmpty()) {
+                    connection.setRequestProperty("If-None-Match", savedEtag)
+                }
+
+                val responseCode = connection.responseCode
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val newEtag = connection.getHeaderField("ETag") ?: ""
+                    val dbFile = context.getDatabasePath(DATABASE_NAME)
+                    val tmpFile = File(dbFile.parentFile, "$DATABASE_NAME.tmp")
+
+                    dbFile.parentFile?.mkdirs()
+                    connection.inputStream.use { input ->
+                        FileOutputStream(tmpFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    if (tmpFile.exists() && tmpFile.length() > 0) {
+                        synchronized(this) {
+                            close()
+                            if (dbFile.exists()) {
+                                dbFile.delete()
+                            }
+                            tmpFile.renameTo(dbFile)
+                        }
+                        if (newEtag.isNotEmpty()) {
+                            prefs.edit().putString(KEY_ETAG, newEtag).apply()
+                        }
+                        Log.d(TAG, "Successfully updated $DATABASE_NAME from GitHub (${dbFile.length()} bytes)")
+                        onUpdated?.invoke()
+                    }
+                } else if (responseCode == HttpURLConnection.HTTP_NOT_MODIFIED) {
+                    Log.d(TAG, "$DATABASE_NAME is already up to date with GitHub.")
+                } else {
+                    Log.d(TAG, "GitHub check returned HTTP $responseCode")
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Runtime update check for $DATABASE_NAME skipped/failed: ${e.message}")
+            }
+        }.start()
     }
 
     /**

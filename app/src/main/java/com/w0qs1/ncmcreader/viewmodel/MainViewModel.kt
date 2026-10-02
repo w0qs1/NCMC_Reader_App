@@ -87,6 +87,7 @@ Disclaimer:
     init {
         checkNfcStatus()
         loadSavedCards()
+        NcmcOperatorDatabaseHelper(application).checkForRemoteUpdate()
     }
 
     fun setStatusMessage(msg: String, isError: Boolean = false) {
