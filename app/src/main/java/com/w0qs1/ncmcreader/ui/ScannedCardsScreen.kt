@@ -344,11 +344,6 @@ fun ScannedCardItem(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (!isSelectionMode) {
-                        TextButton(onClick = onDelete) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
                 }
             }
         }

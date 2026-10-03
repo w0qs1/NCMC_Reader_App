@@ -132,6 +132,8 @@ class NcmcCardReader(private val isoDep: IsoDep) {
 
         // 3. READ ATC Value (Tag 9F36) BEFORE GPO
         var atcValue = 0
+        var transactionLogSfi = 16
+        var transactionLogRecords = 10
         try {
             val atcApdu = ApduUtils.createGetDataApdu(0x9F, 0x36)
             val atcResp = ApduResponse.fromBytes(isoDep.transceive(atcApdu))
@@ -143,6 +145,17 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                 if (atcElem != null && atcElem.value.isNotEmpty()) {
                     atcValue = readUInt16(atcElem.value, 0)
                     Log.d(TAG, "Extracted ATC value before GPO: $atcValue")
+                }
+
+                val logLocElem = TlvParser.findElement(aidTlvs, "9F4D")
+                if (logLocElem != null && logLocElem.value.size >= 2) {
+                    transactionLogSfi = logLocElem.value[0].toInt() and 0xFF
+                    transactionLogRecords = logLocElem.value[1].toInt() and 0xFF
+
+                    Log.d(
+                        TAG,
+                        "Transaction Log Locator 9F4D: SFI=$transactionLogSfi Records=$transactionLogRecords"
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -269,9 +282,9 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val effectiveDateMillis = parseEffectiveDateMillis(effectiveDateStr)
 
         if (hasDf33Service) {
-            for (record in 1..10) {
+            for (record in 1..transactionLogRecords) {
                 try {
-                    val recApdu = ApduUtils.createReadRecordApdu(record, 16)
+                    val recApdu = ApduUtils.createReadRecordApdu(record, transactionLogSfi)
                     val recResp = ApduResponse.fromBytes(isoDep.transceive(recApdu))
                     if (recResp.isSuccess && recResp.data.isNotEmpty()) {
                         val data = recResp.data
@@ -284,7 +297,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                             )
                         )
 
-                        val csaData = extractCsaBytes(data, effectiveDateMillis)
+                        val csaData = extractCsaBytes(data)
                         if (csaData != null) {
                             val (valEvent, histRecords, lang, ver) = decodeCommonServiceArea(csaData, record)
                             if (detectedLanguage == null) detectedLanguage = lang
@@ -366,76 +379,19 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         }
     }
 
-    private fun extractCsaBytes(data: ByteArray, effectiveDateMillis: Long): ByteArray? {
-        if (data.size < CSA_LENGTH) return null
+    private fun extractCsaBytes(data: ByteArray): ByteArray? {
+        val serviceId = byteArrayOf(0xFF.toByte(), 0x01.toByte())
 
-        val nowMillis = System.currentTimeMillis()
-        val maxAllowedMillis = nowMillis + 86400_000L // 24 hours tolerance for time zones / clock skew
-
-        // Sliding window: start from last 96 bytes, slide left 1 byte at a time
-        val startOffset = data.size - CSA_LENGTH
-        for (offset in startOffset downTo 0) {
-            val candidate = data.copyOfRange(offset, offset + CSA_LENGTH)
-            if (isValidCsaWindow(candidate, effectiveDateMillis, maxAllowedMillis)) {
-                return candidate
+        for (i in 0..data.size - serviceId.size - CSA_LENGTH) {
+            if (data[i] == serviceId[0] &&
+                data[i + 1] == serviceId[1]
+            ) {
+                val csaStart = i + serviceId.size
+                return data.copyOfRange(csaStart, csaStart + CSA_LENGTH)
             }
         }
 
-        // Fallback to taking the last 96 bytes if sliding window check didn't match
-        return data.copyOfRange(data.size - CSA_LENGTH, data.size)
-    }
-
-    private fun isValidCsaWindow(
-        csaBytes: ByteArray,
-        effectiveDateMillis: Long,
-        maxAllowedMillis: Long
-    ): Boolean {
-        if (csaBytes.size != CSA_LENGTH) return false
-
-        // 1. Check Validation Event Txn Status (upper 4 bits at byte 20)
-        val valStatusByte = csaBytes[20].toInt() and 0xFF
-        val valTxnStatus = (valStatusByte ushr 4) and 0x0F
-        if (valTxnStatus > 3) { // Status must be 0b0000, 0b0001, 0b0010, or 0b0011
-            return false
-        }
-
-        // Check Validation Event Minutes (byte 10..12)
-        val valMinutes = readUInt24(csaBytes, 10)
-        if (valMinutes > 0) {
-            val valTimeMillis = effectiveDateMillis + (valMinutes.toLong() * 60 * 1000L)
-            if (valTimeMillis > maxAllowedMillis) {
-                return false
-            }
-        }
-
-        // 2. Check 4 History Records (17 bytes each starting at offset 21)
-        var hasValidSignal = valMinutes > 0
-        for (idx in 0 until 4) {
-            val offset = 21 + idx * 17
-            val hMinutes = readUInt24(csaBytes, offset + 6)
-            val hSeq = readUInt16(csaBytes, offset + 9)
-            val hTerm = readUInt24(csaBytes, offset + 3)
-
-            val balStatusBytes = readUInt24(csaBytes, offset + 13)
-            val hStatusCode = balStatusBytes and 0x0F
-            if (hStatusCode > 3) { // Status must be 0b0000, 0b0001, 0b0010, or 0b0011
-                return false
-            }
-
-            if (hMinutes > 0) {
-                val hTimeMillis = effectiveDateMillis + (hMinutes.toLong() * 60 * 1000L)
-                if (hTimeMillis > maxAllowedMillis) {
-                    return false
-                }
-                hasValidSignal = true
-            }
-
-            if (hSeq > 0 || hTerm > 0) {
-                hasValidSignal = true
-            }
-        }
-
-        return hasValidSignal
+        return null
     }
 
     private fun decodeCommonServiceArea(
