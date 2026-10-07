@@ -185,11 +185,12 @@ fun TicketHistoryRow(
     item: TicketHistoryItem,
     opDbHelper: NcmcOperatorDatabaseHelper?
 ) {
-    val badgeColor = when (item.ticketType.uppercase(Locale.US)) {
-        "ENTRY" -> Color(0xFF2E7D32)
-        "EXIT" -> Color(0xFFD84315)
-        "ONE_TAP" -> Color(0xFF0277BD)
-        "RECHARGE" -> Color(0xFF6A1B9A)
+    val badgeType = item.ticketType.uppercase(Locale.US)
+    val badgeColor = when {
+        "ENTRY" in badgeType -> Color(0xFF2E7D32)
+        "EXIT" in badgeType -> Color(0xFFD84315)
+        "ONE_TAP" in badgeType || "ONE TAP" in badgeType -> Color(0xFF0277BD)
+        "RECHARGE" in badgeType -> Color(0xFF6A1B9A)
         else -> MaterialTheme.colorScheme.secondary
     }
 

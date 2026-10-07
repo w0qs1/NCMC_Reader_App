@@ -317,8 +317,8 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         }
 
         // 7. Check if card is non-NCMC or NCMC service not enabled
-        val cardTitle = if (hasDf33Service) "$cleanAppName NCMC Card" else cleanAppName
-        val finalNcmcVersion = if (hasDf33Service) (csaVersion ?: "3.1") else "-"
+        val cardTitle = if (hasDf33Service) "$cleanAppName NCMC Card" else "$cleanAppName Card"
+        val finalNcmcVersion = if (hasDf33Service) (csaVersion ?: "?") else "-"
         val finalLanguage = if (hasDf33Service) (detectedLanguage ?: "English") else "-"
 
         val ticketHistory = if (hasDf33Service) {
@@ -405,7 +405,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val verByte = csaBytes[0].toInt() and 0xFF
         val verMajor = verByte ushr 4
         val verMinor = verByte and 0x0F
-        val versionStr = if (verMajor > 0) "$verMajor.$verMinor" else ""
+        val versionStr = "$verMajor.$verMinor"
 
         val langByte = csaBytes[1].toInt() and 0xFF
         val langCode = (langByte ushr 3) and 0x1F

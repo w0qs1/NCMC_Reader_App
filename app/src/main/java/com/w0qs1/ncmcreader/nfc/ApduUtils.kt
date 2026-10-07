@@ -109,16 +109,6 @@ object ApduUtils {
         )
     }
 
-    fun createGetBalanceApdu(): ByteArray {
-        return byteArrayOf(
-            0x80.toByte(),
-            0x5C.toByte(),
-            0x00.toByte(),
-            0x00.toByte(),
-            0x04.toByte()
-        )
-    }
-
     /**
      * Builds GPO APDU with crafted PDOL data from get_balance.py reference:
      * Tag 9A (3B system date YYMMDD BCD in local time)

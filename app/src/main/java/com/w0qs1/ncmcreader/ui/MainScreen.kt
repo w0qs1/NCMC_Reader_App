@@ -208,7 +208,7 @@ fun MainScreen(
             title = { Text("About NCMC Reader") },
             text = {
                 Text(
-                    text = MainViewModel.ABOUT_TEXT,
+                    text = viewModel.getAboutText(),
                     style = MaterialTheme.typography.bodyMedium
                 )
             },

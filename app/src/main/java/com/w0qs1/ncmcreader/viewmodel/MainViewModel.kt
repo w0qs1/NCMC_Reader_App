@@ -37,9 +37,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         const val DEFAULT_STATUS_MESSAGE = "Tap an NCMC card on the back of your device"
+    }
 
-        const val ABOUT_TEXT =
-"""NCMC Reader v1.0
+        fun getAppVersionName(): String {
+            return try {
+                val pInfo = getApplication<Application>().packageManager.getPackageInfo(getApplication<Application>().packageName, 0)
+                pInfo.versionName ?: "unknown"
+            } catch (_: Exception) {
+            "unknown"
+            }
+        }
+
+        fun getAboutText(): String {
+            val version = getAppVersionName()
+            return """NCMC Reader v$version
 
 NCMC Reader is a native Android application designed to read, display, and manage transit card information and transaction history from National Common Mobility Cards (NCMC) via NFC.
 
