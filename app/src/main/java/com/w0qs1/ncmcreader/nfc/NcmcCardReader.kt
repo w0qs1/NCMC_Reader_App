@@ -326,7 +326,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                 rawValEvents = rawValEvents,
                 rawHistEvents = rawHistEvents,
                 effectiveDateMillis = effectiveDateMillis,
-                pan = panStr ?: "NCMC-CARD"
+                pan = panStr ?: "CARD"
             )
         } else {
             emptyList()
@@ -335,7 +335,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val rawBalance = if (hasDf33Service) (df33BalanceRs ?: (ticketHistory.firstOrNull()?.balance ?: 0.0)) else 0.0
         val finalBalance = rawBalance.roundTo2Decimals()
 
-        val finalPan = panStr ?: "NCMC-CARD-${(System.currentTimeMillis() % 1000000)}"
+        val finalPan = panStr ?: "CARD-${(System.currentTimeMillis() % 1000000)}"
         val finalRawRecords = rawScannedRecords.map { it.copy(cardPan = finalPan) }
 
         Log.d(TAG, "-------------------- EXTRACTED CARD DATA --------------------")
@@ -488,8 +488,8 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             0 -> if (amount == 0.0) "Entry" else "Exit"
             // Code 1: If amount > 0.0, it's an Exit (fixing cases where entry status code was set with non-zero fare).
             1 -> if (amount > 0.0) "Exit" else "Entry"
-            2 -> "Penalty Apply"
-            3 -> "One Tap / Ticket"
+            2 -> "Penalty"
+            3 -> "Ticket"
             else -> "Transaction ($code)"
         }
     }

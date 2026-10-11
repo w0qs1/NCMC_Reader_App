@@ -6,15 +6,20 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.util.Locale
+
+data class TransitLine(
+    val name: String,
+    val colour: String? // e.g. "0072BC"
+)
 
 data class ResolvedStation(
     val operatorName: String,
     val transitMode: String,
     val stationName: String,
+    val lines: List<TransitLine> = emptyList()
 )
 
 class NcmcOperatorDatabaseHelper(private val context: Context) :
@@ -23,7 +28,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
     companion object {
         private const val TAG = "NCMC_OP_DB"
         private const val DATABASE_NAME = "ncmc.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
         private const val PREFS_NAME = "ncmc_op_db_prefs"
         private const val KEY_ETAG = "db_etag"
         private const val DB_GITHUB_URL = "https://raw.githubusercontent.com/w0qs1/NCMC_IDs/main/data/ncmc.db"
@@ -56,38 +61,99 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
 
         val createIndex = "CREATE INDEX IF NOT EXISTS idx_stations_operator ON stations (operator_id);"
 
+        val createLines = """
+            CREATE TABLE IF NOT EXISTS lines (
+                id INTEGER PRIMARY KEY,
+                operator_id TEXT NOT NULL,
+                name TEXT NOT NULL COLLATE NOCASE,
+                colour TEXT,
+                UNIQUE (operator_id, name),
+                FOREIGN KEY (operator_id) REFERENCES operators (id)
+            )
+        """.trimIndent()
+
+        val createStationLines = """
+            CREATE TABLE IF NOT EXISTS station_lines (
+                station_id INTEGER NOT NULL,
+                line_id INTEGER NOT NULL,
+                PRIMARY KEY (station_id, line_id),
+                FOREIGN KEY (station_id) REFERENCES stations (id) ON DELETE CASCADE,
+                FOREIGN KEY (line_id) REFERENCES lines (id) ON DELETE CASCADE
+            )
+        """.trimIndent()
+
+        val createStationLinesIndex = "CREATE INDEX IF NOT EXISTS idx_station_lines_line ON station_lines (line_id);"
+
         db.execSQL(createOperators)
         db.execSQL(createStations)
         db.execSQL(createIndex)
+        db.execSQL(createLines)
+        db.execSQL(createStationLines)
+        db.execSQL(createStationLinesIndex)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Assets copy handles database refresh
+        if (oldVersion < newVersion) {
+            try {
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+                db.close()
+                val dbFile = context.getDatabasePath(DATABASE_NAME)
+                if (dbFile.exists()) {
+                    dbFile.delete()
+                }
+                File(dbFile.path + "-wal").takeIf { it.exists() }?.delete()
+                File(dbFile.path + "-journal").takeIf { it.exists() }?.delete()
+
+                val assetManager = context.assets
+                assetManager.open(DATABASE_NAME).use { inputStream ->
+                    FileOutputStream(dbFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+                Log.d(TAG, "Refreshed $DATABASE_NAME from assets during upgrade to version $newVersion.")
+            } catch (_: Exception) {
+                Log.e(TAG, "Error refreshing database on upgrade")
+            }
+        }
     }
 
     private fun copyDatabaseFromAssetsIfPresent() {
         val dbFile = context.getDatabasePath(DATABASE_NAME)
-        if ((dbFile.exists()) && (dbFile.length() > 0)) return
-
-        try {
-            val assetManager = context.assets
-            val list = assetManager.list("") ?: emptyArray()
-            if (DATABASE_NAME in list) {
-                dbFile.parentFile?.mkdirs()
-                val inputStream: InputStream = assetManager.open(DATABASE_NAME)
-                val outputStream = FileOutputStream(dbFile)
-                val buffer = ByteArray(1024 * 8)
-                var length: Int
-                while (inputStream.read(buffer).also { length = it } > 0) {
-                    outputStream.write(buffer, 0, length)
+        var needsCopy = (!dbFile.exists()) || (dbFile.length() == 0L)
+        if (!needsCopy) {
+            try {
+                SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                    if (db.version < DATABASE_VERSION) {
+                        needsCopy = true
+                    }
                 }
-                outputStream.flush()
-                outputStream.close()
-                inputStream.close()
-                Log.d(TAG, "Copied $DATABASE_NAME from assets successfully.")
+            } catch (_: Exception) {
+                needsCopy = true
             }
-        } catch (e: Exception) {
-            Log.d(TAG, "Asset $DATABASE_NAME not copied: ${e.message}")
+        }
+
+        if (needsCopy) {
+            try {
+                if (dbFile.exists()) {
+                    dbFile.delete()
+                }
+                File(dbFile.path + "-wal").takeIf { it.exists() }?.delete()
+                File(dbFile.path + "-journal").takeIf { it.exists() }?.delete()
+
+                val assetManager = context.assets
+                val list = assetManager.list("") ?: emptyArray()
+                if (DATABASE_NAME in list) {
+                    dbFile.parentFile?.mkdirs()
+                    assetManager.open(DATABASE_NAME).use { inputStream ->
+                        FileOutputStream(dbFile).use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+                    Log.d(TAG, "Copied/Refreshed $DATABASE_NAME from assets successfully (version $DATABASE_VERSION).")
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Asset $DATABASE_NAME copy failed: ${e.message}")
+            }
         }
     }
 
@@ -166,7 +232,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
 
         // Query stations with wildcard matching where fewest '?' wildcards win
         val stationQuery = """
-            SELECT s.stop_name, o.name, o.mode,
+            SELECT s.id, s.stop_name, o.name, o.mode,
                    (length(s.reader_id) - length(replace(s.reader_id, '?', ''))) AS wildcard_count
             FROM stations s
             JOIN operators o ON o.id = s.operator_id
@@ -179,15 +245,38 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
         try {
             val cursor = db.rawQuery(stationQuery, arrayOf(opHex, termHex))
             if (cursor.moveToFirst()) {
-                val stopName = cursor.getString(0)
-                val opName = cursor.getString(1)
-                val mode = cursor.getString(2)
+                val stationId = cursor.getLong(0)
+                val stopName = cursor.getString(1)
+                val opName = cursor.getString(2)
+                val mode = cursor.getString(3)
                 cursor.close()
-                return if (stopName.isNotBlank()) {
-                    ResolvedStation(opName, mode, stopName)
-                } else {
-                    ResolvedStation(opName, mode, "Terminal #0x$termHex")
+
+                val linesList = mutableListOf<TransitLine>()
+                if (stationId > 0) {
+                    val lineQuery = """
+                        SELECT l.name, l.colour
+                        FROM station_lines sl
+                        JOIN lines l ON l.id = sl.line_id
+                        WHERE sl.station_id = ?
+                        ORDER BY sl.rowid
+                    """.trimIndent()
+                    try {
+                        val lineCursor = db.rawQuery(lineQuery, arrayOf(stationId.toString()))
+                        while (lineCursor.moveToNext()) {
+                            val lineName = lineCursor.getString(0)
+                            val lineColour = lineCursor.getString(1)
+                            linesList.add(TransitLine(lineName, lineColour))
+                        }
+                        lineCursor.close()
+                    } catch (_: Exception) {
+                        Log.d(TAG, "Query error resolving lines for station $stationId")
+                    }
                 }
+
+                val finalStationName = stopName.ifBlank { "Terminal #0x$termHex" }
+                val resolved = ResolvedStation(opName, mode, finalStationName, linesList)
+                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op: $opName, Station: $finalStationName, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
+                return resolved
             }
             cursor.close()
 
@@ -198,12 +287,78 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                 val opName = opCursor.getString(0)
                 val mode = opCursor.getString(1)
                 opCursor.close()
-                return ResolvedStation(opName, mode, "Terminal #0x$termHex")
+                val resolved = ResolvedStation(opName, mode, "Terminal #0x$termHex", emptyList())
+                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op only: $opName, Station: Terminal #0x$termHex")
+                return resolved
             }
             opCursor.close()
-        } catch (e: Exception) {
-            Log.d(TAG, "Query error resolving station for $opHex / $termHex: ${e.message}")
+        } catch (_: Exception) {
+            Log.d(TAG, "Query error resolving station for $opHex / $termHex")
         }
+
+        return null
+    }
+
+    /**
+     * Resolves station and line information by station name (fallback for legacy records without terminal IDs).
+     */
+    fun resolveStationByName(stationName: String): ResolvedStation? {
+        val db = try {
+            readableDatabase
+        } catch (e: Exception) {
+            return null
+        }
+
+        val cleanName = if (stationName.contains(" - ")) {
+            stationName.substringAfter(" - ").trim()
+        } else {
+            stationName.trim()
+        }
+
+        if (cleanName.isBlank() || cleanName.startsWith("Terminal #")) return null
+
+        val query = """
+            SELECT s.id, s.stop_name, o.name, o.mode
+            FROM stations s
+            JOIN operators o ON o.id = s.operator_id
+            WHERE s.stop_name COLLATE NOCASE = ?
+            LIMIT 1
+        """.trimIndent()
+
+        try {
+            val cursor = db.rawQuery(query, arrayOf(cleanName))
+            if (cursor.moveToFirst()) {
+                val stationId = cursor.getLong(0)
+                val stopName = cursor.getString(1)
+                val opName = cursor.getString(2)
+                val mode = cursor.getString(3)
+                cursor.close()
+
+                val linesList = mutableListOf<TransitLine>()
+                if (stationId > 0) {
+                    val lineQuery = """
+                        SELECT l.name, l.colour
+                        FROM station_lines sl
+                        JOIN lines l ON l.id = sl.line_id
+                        WHERE sl.station_id = ?
+                        ORDER BY sl.rowid
+                    """.trimIndent()
+                    try {
+                        val lineCursor = db.rawQuery(lineQuery, arrayOf(stationId.toString()))
+                        while (lineCursor.moveToNext()) {
+                            val lineName = lineCursor.getString(0)
+                            val lineColour = lineCursor.getString(1)
+                            linesList.add(TransitLine(lineName, lineColour))
+                        }
+                        lineCursor.close()
+                    } catch (_: Exception) {}
+                }
+                val resolved = ResolvedStation(opName, mode, stopName, linesList)
+                Log.d(TAG, "resolveStationByName ($cleanName) -> Op: $opName, Station: $stopName, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
+                return resolved
+            }
+            cursor.close()
+        } catch (_: Exception) {}
 
         return null
     }

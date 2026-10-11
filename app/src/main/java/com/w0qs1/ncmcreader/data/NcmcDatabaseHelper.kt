@@ -127,6 +127,14 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
                 "UPDATE $TABLE_HISTORY SET $COLUMN_HISTORY_TICKET_TYPE = 'Exit' WHERE $COLUMN_HISTORY_TICKET_TYPE = 'Entry' AND $COLUMN_HISTORY_AMOUNT > 0.0"
             )
 
+            // Update legacy status strings to match updated card reader strings
+            db.execSQL(
+                "UPDATE $TABLE_HISTORY SET $COLUMN_HISTORY_TICKET_TYPE = 'Penalty' WHERE $COLUMN_HISTORY_TICKET_TYPE = 'Penalty Apply'"
+            )
+            db.execSQL(
+                "UPDATE $TABLE_HISTORY SET $COLUMN_HISTORY_TICKET_TYPE = 'Ticket' WHERE $COLUMN_HISTORY_TICKET_TYPE IN ('One Tap / Ticket', 'ONE_TAP', 'ONE TAP')"
+            )
+
             // 2. Remove duplicate history entries caused by status mismatch between old and new scans
             val deduplicateQuery = """
                 DELETE FROM $TABLE_HISTORY 

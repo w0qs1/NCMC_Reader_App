@@ -2,7 +2,9 @@ package com.w0qs1.ncmcreader
 
 import com.w0qs1.ncmcreader.data.NcmcCard
 import com.w0qs1.ncmcreader.data.RawRecordItem
+import com.w0qs1.ncmcreader.data.ResolvedStation
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
+import com.w0qs1.ncmcreader.data.TransitLine
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -83,5 +85,23 @@ class NcmcDatabaseTest {
         assertEquals(2, card.rawRecords.size)
         assertEquals(1, card.rawRecords[0].sfi)
         assertEquals(16, card.rawRecords[1].sfi)
+    }
+
+    @Test
+    fun testResolvedStationWithLines() {
+        val line1 = TransitLine("Blue Line", "0072BC")
+        val line2 = TransitLine("Yellow Line", "FFD100")
+        val resolved = ResolvedStation(
+            operatorName = "Delhi Metro",
+            transitMode = "METRO",
+            stationName = "Rajiv Chowk",
+            lines = listOf(line1, line2)
+        )
+
+        assertEquals("Delhi Metro", resolved.operatorName)
+        assertEquals("Rajiv Chowk", resolved.stationName)
+        assertEquals(2, resolved.lines.size)
+        assertEquals("Blue Line", resolved.lines[0].name)
+        assertEquals("0072BC", resolved.lines[0].colour)
     }
 }

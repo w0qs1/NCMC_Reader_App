@@ -1,5 +1,7 @@
 package com.w0qs1.ncmcreader.ui
 
+import android.util.Log
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -7,14 +9,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.w0qs1.ncmcreader.data.NcmcCard
 import com.w0qs1.ncmcreader.data.NcmcOperatorDatabaseHelper
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
+import com.w0qs1.ncmcreader.data.TransitLine
 import java.util.Locale
 
 @Composable
@@ -189,16 +196,30 @@ fun TicketHistoryRow(
     val badgeColor = when {
         "ENTRY" in badgeType -> Color(0xFF2E7D32)
         "EXIT" in badgeType -> Color(0xFFD84315)
-        "ONE_TAP" in badgeType || "ONE TAP" in badgeType -> Color(0xFF0277BD)
+        "TICKET" in badgeType -> Color(0xFF0277BD)
         "RECHARGE" in badgeType -> Color(0xFF6A1B9A)
         else -> MaterialTheme.colorScheme.secondary
     }
 
     // Decode station and operator names only when Card Details page is opened
     val resolved = remember(item, opDbHelper) {
-        if (item.acquirerId > 0 || item.operatorId > 0 || item.terminalId > 0) {
+        val res = if (item.acquirerId > 0 || item.operatorId > 0 || item.terminalId > 0) {
             opDbHelper?.resolveStation(item.acquirerId, item.operatorId, item.terminalId)
         } else null
+
+        if (res != null && res.lines.isNotEmpty()) {
+            res
+        } else {
+            opDbHelper?.resolveStationByName(item.stationOrLocation) ?: res
+        }
+    }
+
+    LaunchedEffect(resolved, item) {
+        val linesStr = resolved?.lines?.joinToString(", ") { "${it.name} (${it.colour ?: "no-color"})" } ?: "None"
+        Log.d(
+            "NCMC_DECODE",
+            "Decoded Station Info -> Date/Time: ${item.timestamp}, Type/Action: ${item.ticketType}, Operator: ${resolved?.operatorName ?: "Unknown"}, Station: ${resolved?.stationName ?: item.stationOrLocation}, Line(s): [$linesStr]"
+        )
     }
 
     val displayStation = remember(resolved, item) {
@@ -217,43 +238,28 @@ fun TicketHistoryRow(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(12.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .background(badgeColor, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = item.ticketType,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = displayStation,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
+            // 1st row: Operator Name - Station Name | Fare
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
                 Text(
-                    text = item.timestamp,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = displayStation,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 )
-            }
 
-            Column(horizontalAlignment = Alignment.End) {
                 if (item.amount > 0) {
                     Text(
                         text = String.format(Locale.US, "-₹%.2f", item.amount),
@@ -269,6 +275,116 @@ fun TicketHistoryRow(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // 2nd row: Entry/Exit/Ticket | date time | line colours
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Badge (Entry/Exit/Ticket/Recharge)
+                    Box(
+                        modifier = Modifier
+                            .background(badgeColor, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = item.ticketType,
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp
+                        )
+                    }
+
+                    // Date & Time
+                    Text(
+                        text = item.timestamp,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Line colours
+                if (resolved?.lines?.isNotEmpty() == true) {
+                    Box(modifier = Modifier.padding(end = 10.dp)) {
+                        TransitLinesRow(lines = resolved.lines)
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+fun TransitLinesRow(lines: List<TransitLine>) {
+    val unitWidth = 10.dp
+    val height = 16.dp
+    val totalWidth = unitWidth * lines.size
+
+    Canvas(
+        modifier = Modifier
+            .width(totalWidth)
+            .height(height)
+    ) {
+        val w = size.width / lines.size
+        val h = size.height
+        val slant = h * 0.35f
+
+        // Draw each segment fill
+        lines.forEachIndexed { index, line ->
+            val color = parseColor(line.colour)
+            val path = Path().apply {
+                moveTo(index * w + slant, 0f)
+                lineTo((index + 1) * w + slant, 0f)
+                lineTo((index + 1) * w, h)
+                lineTo(index * w, h)
+                close()
+            }
+            drawPath(path, color = color)
+        }
+
+        // Draw internal dividing lines between segments (tilted to the right)
+        for (i in 1 until lines.size) {
+            val divX = i * w
+            drawLine(
+                color = Color.White,
+                start = Offset(divX + slant, 0f),
+                end = Offset(divX, h),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+
+        // Draw outer shared border/outline around the combined parallelogram
+        val outerPath = Path().apply {
+            moveTo(slant, 0f)
+            lineTo(size.width + slant, 0f)
+            lineTo(size.width, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(
+            outerPath,
+            color = Color.White,
+            style = Stroke(width = 1.dp.toPx())
+        )
+    }
+}
+
+fun parseColor(colourStr: String?): Color {
+    val parsedColorInt = try {
+        if (!colourStr.isNullOrBlank()) {
+            android.graphics.Color.parseColor("#$colourStr")
+        } else {
+            null
+        }
+    } catch (_: Exception) {
+        null
+    }
+    return if (parsedColorInt != null) Color(parsedColorInt) else Color.Gray
 }
