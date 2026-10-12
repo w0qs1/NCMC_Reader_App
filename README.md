@@ -40,7 +40,7 @@ The project uses Gradle build system. You can build, test, and package the app u
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/w0qs1/NCMCReader.git
+git clone https://github.com/w0qs1/NCMC_Reader_App.git
 cd NCMCReader
 ```
 
