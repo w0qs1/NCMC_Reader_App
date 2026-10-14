@@ -275,8 +275,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         }
 
         // 6. READ SFI 16 (Log Records 1..10) -> Decode Common Service Area & Language IF DF33 is present
-        val rawValEvents = mutableListOf<RawValEvent>()
-        val rawHistEvents = mutableListOf<RawHistEvent>()
+        val logRecordDecodedList = mutableListOf<LogRecordDecoded>()
         var detectedLanguage: String? = null
         var csaVersion: String? = null
         val effectiveDateMillis = parseEffectiveDateMillis(effectiveDateStr)
@@ -303,8 +302,13 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                             if (detectedLanguage == null) detectedLanguage = lang
                             if (csaVersion == null && ver.isNotEmpty()) csaVersion = ver
 
-                            valEvent?.let { rawValEvents.add(it) }
-                            rawHistEvents.addAll(histRecords)
+                            logRecordDecodedList.add(
+                                LogRecordDecoded(
+                                    recordNum = record,
+                                    valEvent = valEvent,
+                                    historyRecords = histRecords
+                                )
+                            )
                         }
                     } else if (recResp.sw1 == 0x6A || recResp.sw1 == 0x6C) {
                         break
@@ -322,9 +326,8 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val finalLanguage = if (hasDf33Service) (detectedLanguage ?: "English") else "-"
 
         val ticketHistory = if (hasDf33Service) {
-            processCleanHistory(
-                rawValEvents = rawValEvents,
-                rawHistEvents = rawHistEvents,
+            processCleanHistoryNative(
+                logRecordDecodedList = logRecordDecodedList,
                 effectiveDateMillis = effectiveDateMillis,
                 pan = panStr ?: "CARD"
             )
@@ -494,64 +497,98 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         }
     }
 
-    private fun processCleanHistory(
-        rawValEvents: List<RawValEvent>,
-        rawHistEvents: List<RawHistEvent>,
+    private data class LogRecordDecoded(
+        val recordNum: Int,
+        val valEvent: RawValEvent?,
+        val historyRecords: List<RawHistEvent>
+    )
+
+    private fun processCleanHistoryNative(
+        logRecordDecodedList: List<LogRecordDecoded>,
         effectiveDateMillis: Long,
         pan: String
     ): List<TicketHistoryItem> {
-        val valMap = rawValEvents.associateBy { Triple(it.minutes, it.acquirerId, it.terminalId) }
-        val histMap = rawHistEvents.associateBy { Triple(it.minutes, it.acquirerId, it.terminalId) }
+        val accumulatedItems = mutableListOf<RawMergedItem>()
 
-        val allKeys = valMap.keys.union(histMap.keys)
-        val mergedList = mutableListOf<RawMergedItem>()
+        // Read from the last (oldest) history log down to record 1 (newest)
+        val sortedRecords = logRecordDecodedList.sortedByDescending { it.recordNum }
 
-        for (key in allKeys) {
-            val h = histMap[key]
-            val v = valMap[key]
+        for (rec in sortedRecords) {
+            val recordItems = mutableListOf<RawMergedItem>()
 
-            val mins = h?.minutes ?: v?.minutes ?: 0
-            val acq = h?.acquirerId ?: v?.acquirerId ?: 0
-            val op = h?.operatorId ?: v?.operatorId ?: 0
-            val term = h?.terminalId ?: v?.terminalId ?: 0
-            val amt = (h?.amount ?: 0.0).roundTo2Decimals()
-            val balBefore = (h?.balBefore ?: 0.0).roundTo2Decimals()
+            // 1. Read history entries first (history has exact amount, proper order)
+            for (h in rec.historyRecords) {
+                if (h.minutes == 0 && h.seqNum == 0 && h.terminalId == 0) continue
 
-            // Prioritize history record status over active validation event status
-            var status = h?.statusStr ?: v?.statusStr ?: "Transaction"
-            if (amt > 0.0 && status == "Entry") {
-                status = "Exit"
-            } else if (amt == 0.0 && status == "Exit") {
-                status = "Entry"
+                val amt = h.amount.roundTo2Decimals()
+                val balBefore = h.balBefore.roundTo2Decimals()
+                val balAfter = (balBefore - amt).roundTo2Decimals()
+
+                var status = h.statusStr
+                if (amt > 0.0 && status == "Entry") {
+                    status = "Exit"
+                } else if (amt == 0.0 && status == "Exit") {
+                    status = "Entry"
+                }
+
+                recordItems.add(
+                    RawMergedItem(
+                        minutes = h.minutes,
+                        seq = h.seqNum,
+                        acquirerId = h.acquirerId,
+                        operatorId = h.operatorId,
+                        terminalId = h.terminalId,
+                        amount = amt,
+                        balBefore = balBefore,
+                        balAfter = balAfter,
+                        status = status,
+                        rawHex = h.rawHex
+                    )
+                )
             }
 
-            val seq = h?.seqNum ?: 0
-            val hex = h?.rawHex ?: ""
+            // 2. Read validation data ONLY if same is not present in history (match using terminalId and minutes)
+            rec.valEvent?.let { v ->
+                if (v.minutes == 0 && v.terminalId == 0 && v.acquirerId == 0) return@let
 
-            val balAfter = (if (balBefore > 0) balBefore - amt else 0.0).roundTo2Decimals()
+                val existsInHistory = rec.historyRecords.any { h ->
+                    h.terminalId == v.terminalId && h.minutes == v.minutes
+                }
 
-            mergedList.add(
-                RawMergedItem(
-                    minutes = mins,
-                    seq = seq,
-                    acquirerId = acq,
-                    operatorId = op,
-                    terminalId = term,
-                    amount = amt,
-                    balBefore = balBefore,
-                    balAfter = balAfter,
-                    status = status,
-                    rawHex = hex
-                )
-            )
+                if (!existsInHistory) {
+                    val status = v.statusStr
+                    recordItems.add(
+                        RawMergedItem(
+                            minutes = v.minutes,
+                            seq = 0,
+                            acquirerId = v.acquirerId,
+                            operatorId = v.operatorId,
+                            terminalId = v.terminalId,
+                            amount = 0.0,
+                            balBefore = 0.0,
+                            balAfter = 0.0,
+                            status = status,
+                            rawHex = ""
+                        )
+                    )
+                }
+            }
+
+            // 3. Discard duplicate entries from newer SFI 16 log (match based on terminal id, date/time [minutes], and status)
+            for (item in recordItems) {
+                val isDuplicate = accumulatedItems.any { existing ->
+                    existing.terminalId == item.terminalId &&
+                    existing.minutes == item.minutes &&
+                    existing.status == item.status
+                }
+                if (!isDuplicate) {
+                    accumulatedItems.add(item)
+                }
+            }
         }
 
-        val sortedList = mergedList.sortedWith(
-            compareByDescending<RawMergedItem> { it.minutes }.thenByDescending { it.seq }
-        )
-
         val result = mutableListOf<TicketHistoryItem>()
-        for (item in sortedList) {
+        for (item in accumulatedItems) {
             val timestampStr = formatMinutesElapsedToLocalTime(effectiveDateMillis, item.minutes)
             val defaultStationName = String.format(Locale.US, "Terminal #0x%06X", item.terminalId)
 
