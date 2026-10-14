@@ -5,22 +5,39 @@
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=flat&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**NCMC Reader** is an open-source Android application built with Jetpack Compose that allows users to read, inspect, and analyze **National Common Mobility Card (NCMC)** smart cards using NFC (Near Field Communication).
+**NCMC Reader** is an open-source Android application built with Jetpack Compose that allows users to read **National Common Mobility Card (NCMC)** smart cards using NFC (Near Field Communication).
 
 ---
 
 ## Features
 
 - **NFC Card Scanning**: Tap any NCMC-compliant transit card on your NFC-enabled Android device to instantly read card details.
-- **APDU & TLV Parsing**: Communicates with the smart card using ISO-DEP APDU commands and robust TLV (Tag-Length-Value) parsing to extract data structures.
 - **Comprehensive Card Details**:
-  - Card PAN (Primary Account Number) & Tokenized ID
-  - Cardholder Name & Expiry Date
-  - Wallet / Purse Balance & Currency
-  - Recent Transaction History (Transit logs, tolls, retail)
-- **Operator Identification**: Automatically maps card Issuer Identification Numbers (IIN) and operator codes using an embedded/synced SQLite database (`ncmc.db`).
-- **Card History & Management**: View, inspect, and manage previously scanned cards locally.
+  - Card PAN (Primary Account Number)
+  - Expiry Date
+  - Wallet / Purse Balance
+  - Recent Transaction History (Transit logs)
+- **Operator/Line/Station Identification**: Automatically decodes Terminal ID using an embedded/synced SQLite database and database is synced online from [NCMC_IDs](https://github.com/w0qs1/NCMC_IDs).
+- **Database Contribution**: Please contribute to [github.com/w0qs1/NCMC_IDs](https://github.com/w0qs1/NCMC_IDs/issues) to add support for more operators, stations.
+- **Card History & Management**: View, and manage previously scanned cards locally.
+- **Backup & Restore**: Export and import card history using JSON files.
+- **Automatic History merge**: Scan the same card to collect and merge new transit history.
 - **Modern UI / UX**: Built entirely with **Jetpack Compose** and **Material 3**, featuring edge-to-edge support, smooth animations, and haptic feedback.
+
+---
+
+## Disclaimer & No Affiliation
+
+- This app can **only read balance and transit history**. It **cannot perform balance update or balance modification**.
+- The contributors of this app are **not responsible for any warranty or damages to cards since this is based on a [reverse-engineered specification](https://nkmason.dev/posts/reversing-ncmc-spec/).**
+- **Built using LLM Tools. Use at your own risk!**
+- This project and its contributors are **not affiliated with, endorsed by, sponsored by, or officially associated with:**
+  - RuPay
+  - National Payments Corporation of India (NPCI)
+  - National Common Mobility Card (NCMC) program
+  - NCMC-issuing banks
+  - Metro rail corporations and other transit operators
+  - Automatic Fare Collection (AFC) system providers
 
 ---
 
@@ -51,29 +68,6 @@ To compile and assemble the debug build of the application:
 ```
 The compiled APK will be located at:
 `app/build/outputs/apk/debug/ncmc_reader-debug.apk`
-
-### 3. Build Release APK
-```bash
-./gradlew assembleRelease
-```
-
-### 4. Other Useful Gradle Tasks
-- **Clean build artifacts**:
-  ```bash
-    ./gradlew clean
-  ```
-- **Download / Refresh Operator Database (`ncmc.db`)**:
-  ```bash
-    ./gradlew downloadNcmcDb
-  ```
-- **Run Unit Tests**:
-  ```bash
-    ./gradlew test
-  ```
-- **Run Instrumented UI/Integration Tests**:
-  ```bash
-    ./gradlew connectedAndroidTest
-  ```
 
 ---
 
