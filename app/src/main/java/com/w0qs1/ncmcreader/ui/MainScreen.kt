@@ -1,6 +1,7 @@
 package com.w0qs1.ncmcreader.ui
 
 import android.content.Intent
+import androidx.core.net.toUri
 import android.provider.Settings
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -12,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -32,6 +34,7 @@ fun MainScreen(
 
     var showKebabMenu by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    val issuesUrl = stringResource(R.string.github_issues_url)
 
     Scaffold(
         modifier = modifier
@@ -190,6 +193,14 @@ fun MainScreen(
                     expanded = showKebabMenu,
                     onDismissRequest = { showKebabMenu = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Report/Add New Station/Operator") },
+                        onClick = {
+                            showKebabMenu = false
+                            val intent = Intent(Intent.ACTION_VIEW, issuesUrl.toUri())
+                            context.startActivity(intent)
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("About") },
                         onClick = {

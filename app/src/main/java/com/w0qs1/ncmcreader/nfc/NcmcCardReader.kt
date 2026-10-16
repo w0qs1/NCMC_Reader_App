@@ -78,7 +78,13 @@ class NcmcCardReader(private val isoDep: IsoDep) {
     )
 
     fun readCard(): NcmcCard {
-        Log.d(TAG, "==================== STARTING NCMC CARD SCAN ====================")
+        val scanLogs = mutableListOf<String>()
+        fun logDebug(msg: String) {
+            Log.d(TAG, msg)
+            scanLogs.add(msg)
+        }
+
+        logDebug("==================== STARTING NCMC CARD SCAN ====================")
         if (!isoDep.isConnected) {
             isoDep.connect()
         }
@@ -95,20 +101,20 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                 val labelElem = TlvParser.findElement(ppseTlvs, "50") ?: TlvParser.findElement(ppseTlvs, "9F12")
                 if (labelElem != null && labelElem.value.isNotEmpty()) {
                     rawAppName = TlvParser.parseAscii(labelElem.value)
-                    Log.d(TAG, "PPSE Application Name: $rawAppName")
+                    logDebug("PPSE Application Name: $rawAppName")
                 }
             }
         } catch (e: Exception) {
-            Log.d(TAG, "SELECT PPSE skipped or failed: ${e.message}")
+            logDebug("SELECT PPSE skipped or failed: ${e.message}")
         }
 
         // 2. SELECT AID (Only valid AID: A0000005241010)
         val selectAidApdu = ApduUtils.createSelectApdu(PRIMARY_AID)
         val selectResp = ApduResponse.fromBytes(isoDep.transceive(selectAidApdu))
-        Log.d(TAG, "SELECT AID A0000005241010 SW=${String.format("%04X", selectResp.sw)}")
+        logDebug("SELECT AID A0000005241010 SW=${String.format("%04X", selectResp.sw)}")
 
         if (!selectResp.isSuccess || selectResp.data.isEmpty()) {
-            Log.d(TAG, "Card rejected: Invalid or unsupported AID (SW=${String.format("%04X", selectResp.sw)})")
+            logDebug("Card rejected: Invalid or unsupported AID (SW=${String.format("%04X", selectResp.sw)})")
             throw IllegalArgumentException("Only NCMC cards are supported.")
         }
 
@@ -118,7 +124,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             val name = TlvParser.parseAscii(labelElem.value)
             if (name.isNotEmpty()) {
                 rawAppName = name
-                Log.d(TAG, "SELECT AID Application Name: $rawAppName")
+                logDebug("SELECT AID Application Name: $rawAppName")
             }
         }
 
@@ -137,14 +143,14 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         try {
             val atcApdu = ApduUtils.createGetDataApdu(0x9F, 0x36)
             val atcResp = ApduResponse.fromBytes(isoDep.transceive(atcApdu))
-            Log.d(TAG, "GET DATA 9F36 (ATC) Response SW=${String.format("%04X", atcResp.sw)} Data=${atcResp.data.toHexString()}")
+            logDebug("GET DATA 9F36 (ATC) Response SW=${String.format("%04X", atcResp.sw)} Data=${atcResp.data.toHexString()}")
 
             if (atcResp.isSuccess && atcResp.data.isNotEmpty()) {
                 val atcTlvs = TlvParser.parse(atcResp.data)
                 val atcElem = TlvParser.findElement(atcTlvs, "9F36")
                 if (atcElem != null && atcElem.value.isNotEmpty()) {
                     atcValue = readUInt16(atcElem.value, 0)
-                    Log.d(TAG, "Extracted ATC value before GPO: $atcValue")
+                    logDebug("Extracted ATC value before GPO: $atcValue")
                 }
 
                 val logLocElem = TlvParser.findElement(aidTlvs, "9F4D")
@@ -152,14 +158,13 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                     transactionLogSfi = logLocElem.value[0].toInt() and 0xFF
                     transactionLogRecords = logLocElem.value[1].toInt() and 0xFF
 
-                    Log.d(
-                        TAG,
+                    logDebug(
                         "Transaction Log Locator 9F4D: SFI=$transactionLogSfi Records=$transactionLogRecords"
                     )
                 }
             }
         } catch (e: Exception) {
-            Log.d(TAG, "GET DATA 9F36 ATC read skipped or failed: ${e.message}")
+            logDebug("GET DATA 9F36 ATC read skipped or failed: ${e.message}")
         }
 
         // 4. PERFORM GPO with PDOL -> Extract Tag DF33 Service Balance & AFL (Tag 94)
@@ -170,7 +175,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         try {
             val gpoApdu = ApduUtils.buildPdolGpoCommand()
             val gpoResp = ApduResponse.fromBytes(isoDep.transceive(gpoApdu))
-            Log.d(TAG, "GPO APDU Response SW=${String.format("%04X", gpoResp.sw)} Data=${gpoResp.data.toHexString()}")
+            logDebug("GPO APDU Response SW=${String.format("%04X", gpoResp.sw)} Data=${gpoResp.data.toHexString()}")
 
             if (gpoResp.data.isNotEmpty()) {
                 val gpoTlvs = TlvParser.parse(gpoResp.data)
@@ -178,11 +183,11 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                 if (df33Elem != null && df33Elem.value.isNotEmpty()) {
                     hasDf33Service = true
                     df33BalanceRs = parseDf33Balance(df33Elem.value)
-                    Log.d(TAG, "Extracted Tag DF33 Balance: ₹$df33BalanceRs")
+                    logDebug("Extracted Tag DF33 Balance: ₹$df33BalanceRs")
                 }
 
                 aflEntries = parseAflFromGpo(gpoResp.data)
-                Log.d(TAG, "Parsed ${aflEntries.size} AFL entries from GPO: $aflEntries")
+                logDebug("Parsed ${aflEntries.size} AFL entries from GPO: $aflEntries")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error executing GPO command: ${e.message}", e)
@@ -223,7 +228,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                 val recApdu = ApduUtils.createReadRecordApdu(rec, sfi)
                 val recResp = ApduResponse.fromBytes(isoDep.transceive(recApdu))
                 if (recResp.isSuccess && recResp.data.isNotEmpty()) {
-                    Log.d(TAG, "Read Card Info SFI $sfi Record $rec: ${recResp.data.toHexString()}")
+                    logDebug("Read Card Info SFI $sfi Record $rec: ${recResp.data.toHexString()}")
                     rawScannedRecords.add(
                         RawRecordItem(
                             sfi = sfi,
@@ -287,7 +292,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                     val recResp = ApduResponse.fromBytes(isoDep.transceive(recApdu))
                     if (recResp.isSuccess && recResp.data.isNotEmpty()) {
                         val data = recResp.data
-                        Log.d(TAG, "Read SFI 16 Record $record: ${data.toHexString()}")
+                        logDebug("Read SFI 16 Record $record: ${data.toHexString()}")
                         rawScannedRecords.add(
                             RawRecordItem(
                                 sfi = 16,
@@ -314,7 +319,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                         break
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Error reading SFI 16 Record $record: ${e.message}")
+                    logDebug("Error reading SFI 16 Record $record: ${e.message}")
                     break
                 }
             }
@@ -341,19 +346,19 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val finalPan = panStr ?: "CARD-${(System.currentTimeMillis() % 1000000)}"
         val finalRawRecords = rawScannedRecords.map { it.copy(cardPan = finalPan) }
 
-        Log.d(TAG, "-------------------- EXTRACTED CARD DATA --------------------")
-        Log.d(TAG, "Card Title: $cardTitle")
-        Log.d(TAG, "PAN: $finalPan")
-        Log.d(TAG, "Effective Date: $effectiveDateStr")
-        Log.d(TAG, "Expiry Date: $expiryDateStr")
-        Log.d(TAG, "NCMC Version: $finalNcmcVersion")
-        Log.d(TAG, "Card Language: $finalLanguage")
-        Log.d(TAG, "ATC: $atcValue")
-        Log.d(TAG, "Current Balance: ₹$finalBalance")
-        Log.d(TAG, "Has DF33 Service: $hasDf33Service")
-        Log.d(TAG, "Parsed ${ticketHistory.size} transaction records")
-        Log.d(TAG, "Read ${finalRawRecords.size} raw SFI records")
-        Log.d(TAG, "=============================================================")
+        logDebug("-------------------- EXTRACTED CARD DATA --------------------")
+        logDebug("Card Title: $cardTitle")
+        logDebug("PAN: $finalPan")
+        logDebug("Effective Date: $effectiveDateStr")
+        logDebug("Expiry Date: $expiryDateStr")
+        logDebug("NCMC Version: $finalNcmcVersion")
+        logDebug("Card Language: $finalLanguage")
+        logDebug("ATC: $atcValue")
+        logDebug("Current Balance: ₹$finalBalance")
+        logDebug("Has DF33 Service: $hasDf33Service")
+        logDebug("Parsed ${ticketHistory.size} transaction records")
+        logDebug("Read ${finalRawRecords.size} raw SFI records")
+        logDebug("=============================================================")
 
         return NcmcCard(
             pan = finalPan,
@@ -366,7 +371,8 @@ class NcmcCardReader(private val isoDep: IsoDep) {
             lastScannedAt = System.currentTimeMillis(),
             ticketHistory = ticketHistory,
             rawRecords = finalRawRecords,
-            cardTitle = cardTitle
+            cardTitle = cardTitle,
+            rawScanLogs = scanLogs
         )
     }
 

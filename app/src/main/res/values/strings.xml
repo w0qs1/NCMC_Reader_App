@@ -1,3 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">NCMC Reader</string>
+    <string name="github_issues_url" tools:ignore="Typos">https://github.com/w0qs1/NCMC_IDs/issues</string>
 </resources>

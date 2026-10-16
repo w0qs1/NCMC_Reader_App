@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.core.database.sqlite.transaction
 
 class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
@@ -54,7 +55,8 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
                 $COLUMN_ATC INTEGER,
                 $COLUMN_CURRENT_BALANCE REAL,
                 $COLUMN_LAST_SCANNED_AT INTEGER,
-                $COLUMN_CARD_TITLE TEXT
+                $COLUMN_CARD_TITLE TEXT,
+                raw_logs TEXT
             )
         """.trimIndent()
 
@@ -106,6 +108,9 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
     override fun onOpen(db: SQLiteDatabase) {
         super.onOpen(db)
         try {
+            db.execSQL("ALTER TABLE cards ADD COLUMN raw_logs TEXT")
+        } catch (_: Exception) {}
+        try {
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS $TABLE_RAW_RECORDS (
@@ -155,96 +160,112 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
      */
     fun saveOrUpdateCard(card: NcmcCard) {
         val db = writableDatabase
-        db.beginTransaction()
-        try {
-            // Update or insert card details (updating ATC, balance, and metadata without deleting the card row)
-            val cardValues = ContentValues().apply {
-                put(COLUMN_PAN, card.pan)
-                put(COLUMN_EXPIRY_DATE, card.expiryDate)
-                put(COLUMN_EFFECTIVE_DATE, card.effectiveDate)
-                put(COLUMN_NCMC_VERSION, card.ncmcVersion)
-                put(COLUMN_CARD_LANGUAGE, card.cardLanguage)
-                put(COLUMN_ATC, card.atc)
-                put(COLUMN_CURRENT_BALANCE, card.currentBalance)
-                put(COLUMN_LAST_SCANNED_AT, if (card.lastScannedAt > 0) card.lastScannedAt else System.currentTimeMillis())
-                put(COLUMN_CARD_TITLE, card.cardTitle)
-            }
-
-            val rowsUpdated = db.update(
-                TABLE_CARDS,
-                cardValues,
-                "$COLUMN_PAN = ?",
-                arrayOf(card.pan)
-            )
-
-            if (rowsUpdated == 0) {
-                db.insert(TABLE_CARDS, null, cardValues)
-            }
-
-            // Save or update ticket history items avoiding redundant duplicates
-            for (item in card.ticketHistory) {
-                val existingId = findMatchingHistoryId(db, card.pan, item)
-                if (existingId == null) {
-                    val historyValues = ContentValues().apply {
-                        put(COLUMN_HISTORY_CARD_PAN, card.pan)
-                        put(COLUMN_HISTORY_TICKET_TYPE, item.ticketType)
-                        put(COLUMN_HISTORY_STATION, item.stationOrLocation)
-                        put(COLUMN_HISTORY_TIMESTAMP, item.timestamp)
-                        put(COLUMN_HISTORY_AMOUNT, item.amount)
-                        put(COLUMN_HISTORY_BALANCE, item.balance)
-                        put(COLUMN_HISTORY_RAW_HEX, item.rawHex)
-                        put(COLUMN_HISTORY_ACQUIRER_ID, item.acquirerId)
-                        put(COLUMN_HISTORY_OPERATOR_ID, item.operatorId)
-                        put(COLUMN_HISTORY_TERMINAL_ID, item.terminalId)
-                    }
-                    db.insert(TABLE_HISTORY, null, historyValues)
-                } else {
-                    // Update existing history entry with corrected ticketType and rawHex/station details
-                    val updateValues = ContentValues().apply {
-                        put(COLUMN_HISTORY_TICKET_TYPE, item.ticketType)
-                        if (item.rawHex.isNotEmpty()) put(COLUMN_HISTORY_RAW_HEX, item.rawHex)
-                        if (item.acquirerId > 0) put(COLUMN_HISTORY_ACQUIRER_ID, item.acquirerId)
-                        if (item.operatorId > 0) put(COLUMN_HISTORY_OPERATOR_ID, item.operatorId)
-                        if (item.terminalId > 0) put(COLUMN_HISTORY_TERMINAL_ID, item.terminalId)
-                    }
-                    db.update(
-                        TABLE_HISTORY,
-                        updateValues,
-                        "$COLUMN_HISTORY_ID = ?",
-                        arrayOf(existingId.toString())
+        db.transaction {
+            try {
+                // Update or insert card details (updating ATC, balance, and metadata without deleting the card row)
+                val cardValues = ContentValues().apply {
+                    put(COLUMN_PAN, card.pan)
+                    put(COLUMN_EXPIRY_DATE, card.expiryDate)
+                    put(COLUMN_EFFECTIVE_DATE, card.effectiveDate)
+                    put(COLUMN_NCMC_VERSION, card.ncmcVersion)
+                    put(COLUMN_CARD_LANGUAGE, card.cardLanguage)
+                    put(COLUMN_ATC, card.atc)
+                    put(COLUMN_CURRENT_BALANCE, card.currentBalance)
+                    put(
+                        COLUMN_LAST_SCANNED_AT,
+                        if (card.lastScannedAt > 0) card.lastScannedAt else System.currentTimeMillis()
                     )
+                    put(COLUMN_CARD_TITLE, card.cardTitle)
+                    put("raw_logs", card.rawScanLogs.joinToString("\n"))
                 }
-            }
 
-            // Save or update raw SFI records read during scan
-            for (record in card.rawRecords) {
-                if (record.rawHex.isNotBlank()) {
-                    val exists = isRawRecordExists(db, card.pan, record.sfi, record.recordNum)
-                    if (!exists) {
-                        val recValues = ContentValues().apply {
-                            put(COLUMN_RAW_RECORD_CARD_PAN, card.pan)
-                            put(COLUMN_RAW_RECORD_SFI, record.sfi)
-                            put(COLUMN_RAW_RECORD_NUM, record.recordNum)
-                            put(COLUMN_RAW_RECORD_HEX, record.rawHex)
+                val rowsUpdated = update(
+                    TABLE_CARDS,
+                    cardValues,
+                    "$COLUMN_PAN = ?",
+                    arrayOf(card.pan)
+                )
+
+                if (rowsUpdated == 0) {
+                    insert(TABLE_CARDS, null, cardValues)
+                }
+
+                // Save or update ticket history items avoiding redundant duplicates
+                for (item in card.ticketHistory) {
+                    val existingId = findMatchingHistoryId(this, card.pan, item)
+                    if (existingId == null) {
+                        val historyValues = ContentValues().apply {
+                            put(COLUMN_HISTORY_CARD_PAN, card.pan)
+                            put(COLUMN_HISTORY_TICKET_TYPE, item.ticketType)
+                            put(COLUMN_HISTORY_STATION, item.stationOrLocation)
+                            put(COLUMN_HISTORY_TIMESTAMP, item.timestamp)
+                            put(COLUMN_HISTORY_AMOUNT, item.amount)
+                            put(COLUMN_HISTORY_BALANCE, item.balance)
+                            put(COLUMN_HISTORY_RAW_HEX, item.rawHex)
+                            put(COLUMN_HISTORY_ACQUIRER_ID, item.acquirerId)
+                            put(COLUMN_HISTORY_OPERATOR_ID, item.operatorId)
+                            put(COLUMN_HISTORY_TERMINAL_ID, item.terminalId)
                         }
-                        db.insert(TABLE_RAW_RECORDS, null, recValues)
+                        insert(TABLE_HISTORY, null, historyValues)
                     } else {
+                        // Update existing history entry with corrected ticketType and rawHex/station details
                         val updateValues = ContentValues().apply {
-                            put(COLUMN_RAW_RECORD_HEX, record.rawHex)
+                            put(COLUMN_HISTORY_TICKET_TYPE, item.ticketType)
+                            if (item.rawHex.isNotEmpty()) put(COLUMN_HISTORY_RAW_HEX, item.rawHex)
+                            if (item.acquirerId > 0) put(
+                                COLUMN_HISTORY_ACQUIRER_ID,
+                                item.acquirerId
+                            )
+                            if (item.operatorId > 0) put(
+                                COLUMN_HISTORY_OPERATOR_ID,
+                                item.operatorId
+                            )
+                            if (item.terminalId > 0) put(
+                                COLUMN_HISTORY_TERMINAL_ID,
+                                item.terminalId
+                            )
                         }
-                        db.update(
-                            TABLE_RAW_RECORDS,
+                        update(
+                            TABLE_HISTORY,
                             updateValues,
-                            "$COLUMN_RAW_RECORD_CARD_PAN = ? AND $COLUMN_RAW_RECORD_SFI = ? AND $COLUMN_RAW_RECORD_NUM = ?",
-                            arrayOf(card.pan, record.sfi.toString(), record.recordNum.toString())
+                            "$COLUMN_HISTORY_ID = ?",
+                            arrayOf(existingId.toString())
                         )
                     }
                 }
-            }
 
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
+                // Save or update raw SFI records read during scan
+                for (record in card.rawRecords) {
+                    if (record.rawHex.isNotBlank()) {
+                        val exists = isRawRecordExists(this, card.pan, record.sfi, record.recordNum)
+                        if (!exists) {
+                            val recValues = ContentValues().apply {
+                                put(COLUMN_RAW_RECORD_CARD_PAN, card.pan)
+                                put(COLUMN_RAW_RECORD_SFI, record.sfi)
+                                put(COLUMN_RAW_RECORD_NUM, record.recordNum)
+                                put(COLUMN_RAW_RECORD_HEX, record.rawHex)
+                            }
+                            insert(TABLE_RAW_RECORDS, null, recValues)
+                        } else {
+                            val updateValues = ContentValues().apply {
+                                put(COLUMN_RAW_RECORD_HEX, record.rawHex)
+                            }
+                            update(
+                                TABLE_RAW_RECORDS,
+                                updateValues,
+                                "$COLUMN_RAW_RECORD_CARD_PAN = ? AND $COLUMN_RAW_RECORD_SFI = ? AND $COLUMN_RAW_RECORD_NUM = ?",
+                                arrayOf(
+                                    card.pan,
+                                    record.sfi.toString(),
+                                    record.recordNum.toString()
+                                )
+                            )
+                        }
+                    }
+                }
+
+            } finally {
+            }
         }
     }
 
@@ -344,6 +365,9 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
             val lastScannedAt = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_LAST_SCANNED_AT))
             val cardTitleIdx = cursor.getColumnIndex(COLUMN_CARD_TITLE)
             val cardTitle = if (cardTitleIdx != -1) cursor.getString(cardTitleIdx) ?: "RuPay NCMC Card" else "RuPay NCMC Card"
+            val rawLogsIdx = cursor.getColumnIndex("raw_logs")
+            val rawLogsStr = if (rawLogsIdx != -1) cursor.getString(rawLogsIdx) else ""
+            val rawScanLogs = if (!rawLogsStr.isNullOrBlank()) rawLogsStr.split("\n") else emptyList()
 
             val history = getHistoryForCard(db, pan)
             val rawRecords = getRawRecordsForCard(db, pan)
@@ -360,7 +384,8 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
                     lastScannedAt = lastScannedAt,
                     ticketHistory = history,
                     rawRecords = rawRecords,
-                    cardTitle = cardTitle
+                    cardTitle = cardTitle,
+                    rawScanLogs = rawScanLogs
                 )
             )
         }
@@ -394,6 +419,9 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
             val lastScannedAt = cursor.getLong(cursor.getColumnIndexOrThrow(COLUMN_LAST_SCANNED_AT))
             val cardTitleIdx = cursor.getColumnIndex(COLUMN_CARD_TITLE)
             val cardTitle = if (cardTitleIdx != -1) cursor.getString(cardTitleIdx) ?: "RuPay NCMC Card" else "RuPay NCMC Card"
+            val rawLogsIdx = cursor.getColumnIndex("raw_logs")
+            val rawLogsStr = if (rawLogsIdx != -1) cursor.getString(rawLogsIdx) else ""
+            val rawScanLogs = if (!rawLogsStr.isNullOrBlank()) rawLogsStr.split("\n") else emptyList()
 
             val history = getHistoryForCard(db, pan)
             val rawRecords = getRawRecordsForCard(db, pan)
@@ -409,7 +437,8 @@ class NcmcDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_
                 lastScannedAt = lastScannedAt,
                 ticketHistory = history,
                 rawRecords = rawRecords,
-                cardTitle = cardTitle
+                cardTitle = cardTitle,
+                rawScanLogs = rawScanLogs
             )
         }
         cursor.close()

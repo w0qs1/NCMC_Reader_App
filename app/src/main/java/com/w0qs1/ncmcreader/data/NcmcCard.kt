@@ -43,4 +43,5 @@ data class NcmcCard(
     val ticketHistory: List<TicketHistoryItem> = emptyList(),
     val rawRecords: List<RawRecordItem> = emptyList(),
     val cardTitle: String = "RuPay NCMC Card",
+    val rawScanLogs: List<String> = emptyList(),
 )
