@@ -13,15 +13,17 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.w0qs1.ncmcreader.ui.CardDetailsScreen
 import com.w0qs1.ncmcreader.ui.MainScreen
 import com.w0qs1.ncmcreader.ui.ScannedCardsScreen
@@ -128,6 +130,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 @Composable
 fun AppNavigation(viewModel: MainViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsState()
+    val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
+    val isMaskPanEnabled by viewModel.isMaskPanEnabled.collectAsState()
 
     BackHandler(enabled = currentScreen != Screen.MAIN) {
         when (currentScreen) {
@@ -141,5 +145,47 @@ fun AppNavigation(viewModel: MainViewModel) {
         Screen.MAIN -> MainScreen(viewModel = viewModel)
         Screen.ALL_CARDS -> ScannedCardsScreen(viewModel = viewModel)
         Screen.CARD_DETAILS -> CardDetailsScreen(viewModel = viewModel)
+    }
+
+    if (showSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.setShowSettingsDialog(false) },
+            title = { Text("Settings") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Mask Card PAN",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Show only first 6 and last 4 digits (masked with 'x')",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isMaskPanEnabled,
+                            onCheckedChange = { viewModel.setMaskPanEnabled(it) }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.setShowSettingsDialog(false) }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }

@@ -29,6 +29,7 @@ fun CardDetailsScreen(
     modifier: Modifier = Modifier
 ) {
     val selectedCard by viewModel.selectedCard.collectAsState()
+    val isMaskPanEnabled by viewModel.isMaskPanEnabled.collectAsState()
     val context = LocalContext.current
     var showKebabMenu by remember { mutableStateOf(false) }
     var showRawLogsDialog by remember { mutableStateOf(false) }
@@ -70,6 +71,13 @@ fun CardDetailsScreen(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Settings") },
+                                onClick = {
+                                    showKebabMenu = false
+                                    viewModel.setShowSettingsDialog(true)
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Report/Add New Station/Operator") },
                                 onClick = {
                                     showKebabMenu = false
@@ -92,7 +100,7 @@ fun CardDetailsScreen(
                 .padding(16.dp)
         ) {
             selectedCard?.let { card ->
-                CardDetailsView(card = card)
+                CardDetailsView(card = card, isMaskPanEnabled = isMaskPanEnabled)
             } ?: run {
                 Text("No card selected")
             }

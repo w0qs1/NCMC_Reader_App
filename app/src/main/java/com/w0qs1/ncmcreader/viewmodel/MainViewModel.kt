@@ -6,6 +6,7 @@ import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.tech.IsoDep
 import android.util.Log
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.w0qs1.ncmcreader.data.NcmcCard
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.seconds
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -68,6 +70,7 @@ Disclaimer:
     }
 
     private val dbHelper = NcmcDatabaseHelper(application)
+    private val prefs = application.getSharedPreferences("ncmc_prefs", Context.MODE_PRIVATE)
     private val _isProcessing = MutableStateFlow(false)
     private var statusResetJob: Job? = null
 
@@ -76,6 +79,21 @@ Disclaimer:
 
     private val _isNfcEnabled = MutableStateFlow(false)
     val isNfcEnabled: StateFlow<Boolean> = _isNfcEnabled.asStateFlow()
+
+    private val _isMaskPanEnabled = MutableStateFlow(prefs.getBoolean("mask_pan", false))
+    val isMaskPanEnabled: StateFlow<Boolean> = _isMaskPanEnabled.asStateFlow()
+
+    fun setMaskPanEnabled(enabled: Boolean) {
+        _isMaskPanEnabled.value = enabled
+        prefs.edit { putBoolean("mask_pan", enabled) }
+    }
+
+    private val _showSettingsDialog = MutableStateFlow(false)
+    val showSettingsDialog: StateFlow<Boolean> = _showSettingsDialog.asStateFlow()
+
+    fun setShowSettingsDialog(show: Boolean) {
+        _showSettingsDialog.value = show
+    }
 
     private val _lastScannedCard = MutableStateFlow<NcmcCard?>(null)
     val lastScannedCard: StateFlow<NcmcCard?> = _lastScannedCard.asStateFlow()
@@ -107,7 +125,7 @@ Disclaimer:
 
         if (isError) {
             statusResetJob = viewModelScope.launch(Dispatchers.Main) {
-                delay(3000L)
+                delay(3.seconds)
                 _statusMessage.value = DEFAULT_STATUS_MESSAGE
             }
         }

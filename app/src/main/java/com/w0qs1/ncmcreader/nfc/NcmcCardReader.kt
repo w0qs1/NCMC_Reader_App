@@ -596,7 +596,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
         val result = mutableListOf<TicketHistoryItem>()
         for (item in accumulatedItems) {
             val timestampStr = formatMinutesElapsedToLocalTime(effectiveDateMillis, item.minutes)
-            val defaultStationName = String.format(Locale.US, "Terminal #0x%06X", item.terminalId)
+            val defaultStationName = String.format(Locale.US, "Terminal 0x%06X", item.terminalId)
 
             result.add(
                 TicketHistoryItem(

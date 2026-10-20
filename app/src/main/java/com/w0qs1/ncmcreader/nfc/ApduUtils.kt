@@ -147,3 +147,20 @@ object ApduUtils {
         return apdu
     }
 }
+
+fun maskPan(pan: String): String {
+    val digits = pan.filter { it.isDigit() }
+    if (digits.length < 10) return pan
+
+    val first6 = digits.take(6)
+    val last4 = digits.takeLast(4)
+    val middleCount = digits.length - 6 - 4
+    val maskedDigits = first6 + "x".repeat(middleCount.coerceAtLeast(0)) + last4
+
+    val formatted = StringBuilder()
+    for (i in maskedDigits.indices) {
+        if (i > 0 && i % 4 == 0) formatted.append(" ")
+        formatted.append(maskedDigits[i])
+    }
+    return formatted.toString()
+}
