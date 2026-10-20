@@ -31,6 +31,10 @@ fun MainScreen(
     val isNfcEnabled by viewModel.isNfcEnabled.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
+    val isMaskPanEnabled by viewModel.isMaskPanEnabled.collectAsState()
+    val isMaskTimeEnabled by viewModel.isMaskTimeEnabled.collectAsState()
+    val isMaskDateEnabled by viewModel.isMaskDateEnabled.collectAsState()
+    val isMaskMetadataEnabled by viewModel.isMaskMetadataEnabled.collectAsState()
 
     var showKebabMenu by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -171,6 +175,18 @@ fun MainScreen(
                     Text(
                         text = "View All Scanned Cards",
                         style = MaterialTheme.typography.titleMedium
+                    )
+                }
+
+                val enabledCount = listOf(isMaskPanEnabled, isMaskTimeEnabled, isMaskDateEnabled, isMaskMetadataEnabled).count { it }
+                if (enabledCount > 0) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "$enabledCount masking flags enabled",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }

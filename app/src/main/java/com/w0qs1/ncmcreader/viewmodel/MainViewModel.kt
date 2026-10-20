@@ -88,6 +88,36 @@ Disclaimer:
         prefs.edit { putBoolean("mask_pan", enabled) }
     }
 
+    private val _isMaskMetadataEnabled = MutableStateFlow(prefs.getBoolean("mask_metadata", false))
+    val isMaskMetadataEnabled: StateFlow<Boolean> = _isMaskMetadataEnabled.asStateFlow()
+
+    fun setMaskMetadataEnabled(enabled: Boolean) {
+        _isMaskMetadataEnabled.value = enabled
+        prefs.edit { putBoolean("mask_metadata", enabled) }
+    }
+
+    private val _isMaskTimeEnabled = MutableStateFlow(prefs.getBoolean("mask_time", false))
+    val isMaskTimeEnabled: StateFlow<Boolean> = _isMaskTimeEnabled.asStateFlow()
+
+    fun setMaskTimeEnabled(enabled: Boolean) {
+        _isMaskTimeEnabled.value = enabled
+        prefs.edit { putBoolean("mask_time", enabled) }
+        if (!enabled) {
+            setMaskDateEnabled(false)
+        }
+    }
+
+    private val _isMaskDateEnabled = MutableStateFlow(prefs.getBoolean("mask_date", false))
+    val isMaskDateEnabled: StateFlow<Boolean> = _isMaskDateEnabled.asStateFlow()
+
+    fun setMaskDateEnabled(enabled: Boolean) {
+        if (enabled && !_isMaskTimeEnabled.value) {
+            setMaskTimeEnabled(true)
+        }
+        _isMaskDateEnabled.value = enabled
+        prefs.edit { putBoolean("mask_date", enabled) }
+    }
+
     private val _showSettingsDialog = MutableStateFlow(false)
     val showSettingsDialog: StateFlow<Boolean> = _showSettingsDialog.asStateFlow()
 

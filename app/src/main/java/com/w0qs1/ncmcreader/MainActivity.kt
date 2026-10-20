@@ -132,6 +132,9 @@ fun AppNavigation(viewModel: MainViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsState()
     val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
     val isMaskPanEnabled by viewModel.isMaskPanEnabled.collectAsState()
+    val isMaskTimeEnabled by viewModel.isMaskTimeEnabled.collectAsState()
+    val isMaskDateEnabled by viewModel.isMaskDateEnabled.collectAsState()
+    val isMaskMetadataEnabled by viewModel.isMaskMetadataEnabled.collectAsState()
 
     BackHandler(enabled = currentScreen != Screen.MAIN) {
         when (currentScreen) {
@@ -154,8 +157,9 @@ fun AppNavigation(viewModel: MainViewModel) {
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // 1. Mask Card PAN
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -169,7 +173,7 @@ fun AppNavigation(viewModel: MainViewModel) {
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Show only first 6 and last 4 digits (masked with 'x')",
+                                text = "Show only first 6 and last 4 digits",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -178,6 +182,85 @@ fun AppNavigation(viewModel: MainViewModel) {
                             checked = isMaskPanEnabled,
                             onCheckedChange = { viewModel.setMaskPanEnabled(it) }
                         )
+                    }
+
+                    // Mask Card Metadata (ATC, Expiry & Effective Dates)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Mask Card Metadata",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Mask ATC, expiry & effective dates",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isMaskMetadataEnabled,
+                            onCheckedChange = { viewModel.setMaskMetadataEnabled(it) }
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    // 2. Mask Transaction Time
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Mask Transaction Time",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Show time as xx:xx (keeps date intact)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isMaskTimeEnabled,
+                            onCheckedChange = { viewModel.setMaskTimeEnabled(it) }
+                        )
+                    }
+
+                    // 3. Mask Transaction Date (Shown only when Mask Time is enabled)
+                    if (isMaskTimeEnabled) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Mask Transaction Date",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Show date as XXXX-XX-XX",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = isMaskDateEnabled,
+                                onCheckedChange = { viewModel.setMaskDateEnabled(it) }
+                            )
+                        }
                     }
                 }
             },

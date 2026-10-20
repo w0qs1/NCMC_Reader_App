@@ -30,6 +30,9 @@ fun CardDetailsScreen(
 ) {
     val selectedCard by viewModel.selectedCard.collectAsState()
     val isMaskPanEnabled by viewModel.isMaskPanEnabled.collectAsState()
+    val isMaskTimeEnabled by viewModel.isMaskTimeEnabled.collectAsState()
+    val isMaskDateEnabled by viewModel.isMaskDateEnabled.collectAsState()
+    val isMaskMetadataEnabled by viewModel.isMaskMetadataEnabled.collectAsState()
     val context = LocalContext.current
     var showKebabMenu by remember { mutableStateOf(false) }
     var showRawLogsDialog by remember { mutableStateOf(false) }
@@ -64,13 +67,6 @@ fun CardDetailsScreen(
                             onDismissRequest = { showKebabMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("View Raw Card Logs") },
-                                onClick = {
-                                    showKebabMenu = false
-                                    showRawLogsDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Settings") },
                                 onClick = {
                                     showKebabMenu = false
@@ -83,6 +79,13 @@ fun CardDetailsScreen(
                                     showKebabMenu = false
                                     val intent = Intent(Intent.ACTION_VIEW, issuesUrl.toUri())
                                     context.startActivity(intent)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("View Raw Card Logs") },
+                                onClick = {
+                                    showKebabMenu = false
+                                    showRawLogsDialog = true
                                 }
                             )
                         }
@@ -100,7 +103,13 @@ fun CardDetailsScreen(
                 .padding(16.dp)
         ) {
             selectedCard?.let { card ->
-                CardDetailsView(card = card, isMaskPanEnabled = isMaskPanEnabled)
+                CardDetailsView(
+                    card = card,
+                    isMaskPanEnabled = isMaskPanEnabled,
+                    isMaskTimeEnabled = isMaskTimeEnabled,
+                    isMaskDateEnabled = isMaskDateEnabled,
+                    isMaskMetadataEnabled = isMaskMetadataEnabled
+                )
             } ?: run {
                 Text("No card selected")
             }

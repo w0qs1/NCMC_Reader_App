@@ -24,13 +24,17 @@ import com.w0qs1.ncmcreader.data.NcmcOperatorDatabaseHelper
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import com.w0qs1.ncmcreader.data.TransitLine
 import com.w0qs1.ncmcreader.nfc.maskPan
+import com.w0qs1.ncmcreader.nfc.maskTimestamp
 import java.util.Locale
 
 @Composable
 fun CardDetailsView(
     card: NcmcCard,
     modifier: Modifier = Modifier,
-    isMaskPanEnabled: Boolean = false
+    isMaskPanEnabled: Boolean = false,
+    isMaskTimeEnabled: Boolean = false,
+    isMaskDateEnabled: Boolean = false,
+    isMaskMetadataEnabled: Boolean = false
 ) {
     val context = LocalContext.current
     val opDbHelper = remember(context) { NcmcOperatorDatabaseHelper(context) }
@@ -102,7 +106,7 @@ fun CardDetailsView(
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
                         Text(
-                            text = card.atc.toString(),
+                            text = if (isMaskMetadataEnabled) "XXXX" else card.atc.toString(),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -123,8 +127,8 @@ fun CardDetailsView(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    DetailField(label = "Expiry Date", value = card.expiryDate)
-                    DetailField(label = "Effective Date", value = card.effectiveDate)
+                    DetailField(label = "Expiry Date", value = if (isMaskMetadataEnabled) "XXXX-XX-XX" else card.expiryDate)
+                    DetailField(label = "Effective Date", value = if (isMaskMetadataEnabled) "XXXX-XX-XX" else card.effectiveDate)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
@@ -167,7 +171,12 @@ fun CardDetailsView(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 card.ticketHistory.forEach { item ->
-                    TicketHistoryRow(item = item, opDbHelper = opDbHelper)
+                    TicketHistoryRow(
+                        item = item,
+                        opDbHelper = opDbHelper,
+                        isMaskTimeEnabled = isMaskTimeEnabled,
+                        isMaskDateEnabled = isMaskDateEnabled
+                    )
                 }
             }
         }
@@ -193,7 +202,9 @@ fun DetailField(label: String, value: String) {
 @Composable
 fun TicketHistoryRow(
     item: TicketHistoryItem,
-    opDbHelper: NcmcOperatorDatabaseHelper?
+    opDbHelper: NcmcOperatorDatabaseHelper?,
+    isMaskTimeEnabled: Boolean = false,
+    isMaskDateEnabled: Boolean = false
 ) {
     val badgeType = item.ticketType.uppercase(Locale.US)
     val badgeColor = when {
@@ -311,7 +322,7 @@ fun TicketHistoryRow(
 
                     // Date & Time
                     Text(
-                        text = item.timestamp,
+                        text = maskTimestamp(item.timestamp, isMaskTimeEnabled, isMaskDateEnabled),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

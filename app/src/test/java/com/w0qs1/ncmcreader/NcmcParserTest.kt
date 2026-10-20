@@ -4,6 +4,7 @@ import com.w0qs1.ncmcreader.nfc.ApduUtils
 import com.w0qs1.ncmcreader.nfc.TlvParser
 import com.w0qs1.ncmcreader.nfc.hexToByteArray
 import com.w0qs1.ncmcreader.nfc.maskPan
+import com.w0qs1.ncmcreader.nfc.maskTimestamp
 import com.w0qs1.ncmcreader.nfc.parseAflFromGpo
 import com.w0qs1.ncmcreader.nfc.toHexString
 import org.junit.Assert.assertEquals
@@ -103,5 +104,13 @@ class NcmcParserTest {
         val pan = "6082 1234 5678 9012"
         val masked = maskPan(pan)
         assertEquals("6082 12xx xxxx 9012", masked)
+    }
+
+    @Test
+    fun testMaskTimestamp() {
+        val ts = "2026-10-04 14:30"
+        assertEquals("2026-10-04 xx:xx", maskTimestamp(ts, maskTime = true, maskDate = false))
+        assertEquals("XXXX-XX-XX xx:xx", maskTimestamp(ts, maskTime = true, maskDate = true))
+        assertEquals("2026-10-04 14:30", maskTimestamp(ts, maskTime = false, maskDate = false))
     }
 }
