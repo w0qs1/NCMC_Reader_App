@@ -18,16 +18,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.toColorInt
 import com.w0qs1.ncmcreader.data.NcmcCard
 import com.w0qs1.ncmcreader.data.NcmcOperatorDatabaseHelper
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import com.w0qs1.ncmcreader.data.TransitLine
+import com.w0qs1.ncmcreader.nfc.maskPan
 import java.util.Locale
 
 @Composable
 fun CardDetailsView(
     card: NcmcCard,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isMaskPanEnabled: Boolean = false
 ) {
     val context = LocalContext.current
     val opDbHelper = remember(context) { NcmcOperatorDatabaseHelper(context) }
@@ -68,7 +71,7 @@ fun CardDetailsView(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = card.pan,
+                    text = if (isMaskPanEnabled) maskPan(card.pan) else card.pan,
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -224,13 +227,17 @@ fun TicketHistoryRow(
 
     val displayStation = remember(resolved, item) {
         if (resolved != null) {
-            if (resolved.stationName.startsWith("Terminal #")) {
+            if (resolved.stationName.startsWith("Terminal #") || resolved.stationName.startsWith("Terminal 0x")) {
                 "${resolved.operatorName} (${resolved.stationName})"
             } else {
                 "${resolved.operatorName} - ${resolved.stationName}"
             }
         } else {
-            item.stationOrLocation
+            if (item.stationOrLocation.startsWith("Terminal 0x") || item.stationOrLocation.startsWith("Terminal #")) {
+                "Unknown Operator (${item.stationOrLocation})"
+            } else {
+                "Unknown Operator - ${item.stationOrLocation}"
+            }
         }
     }
 
@@ -379,7 +386,7 @@ fun TransitLinesRow(lines: List<TransitLine>) {
 fun parseColor(colourStr: String?): Color {
     val parsedColorInt = try {
         if (!colourStr.isNullOrBlank()) {
-            android.graphics.Color.parseColor("#$colourStr")
+            "#$colourStr".toColorInt()
         } else {
             null
         }

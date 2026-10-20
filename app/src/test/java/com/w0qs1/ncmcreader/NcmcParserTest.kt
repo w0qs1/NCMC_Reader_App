@@ -3,6 +3,7 @@ package com.w0qs1.ncmcreader
 import com.w0qs1.ncmcreader.nfc.ApduUtils
 import com.w0qs1.ncmcreader.nfc.TlvParser
 import com.w0qs1.ncmcreader.nfc.hexToByteArray
+import com.w0qs1.ncmcreader.nfc.maskPan
 import com.w0qs1.ncmcreader.nfc.parseAflFromGpo
 import com.w0qs1.ncmcreader.nfc.toHexString
 import org.junit.Assert.assertEquals
@@ -95,5 +96,12 @@ class NcmcParserTest {
         assertEquals(2, aflEntries[1].sfi)
         assertEquals(1, aflEntries[1].firstRecord)
         assertEquals(3, aflEntries[1].lastRecord)
+    }
+
+    @Test
+    fun testMaskPan() {
+        val pan = "6082 1234 5678 9012"
+        val masked = maskPan(pan)
+        assertEquals("6082 12xx xxxx 9012", masked)
     }
 }

@@ -194,6 +194,13 @@ fun MainScreen(
                     onDismissRequest = { showKebabMenu = false }
                 ) {
                     DropdownMenuItem(
+                        text = { Text("Settings") },
+                        onClick = {
+                            showKebabMenu = false
+                            viewModel.setShowSettingsDialog(true)
+                        }
+                    )
+                    DropdownMenuItem(
                         text = { Text("Report/Add New Station/Operator") },
                         onClick = {
                             showKebabMenu = false

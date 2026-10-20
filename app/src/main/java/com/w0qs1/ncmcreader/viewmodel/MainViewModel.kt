@@ -6,6 +6,7 @@ import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.tech.IsoDep
 import android.util.Log
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.w0qs1.ncmcreader.data.NcmcCard
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.seconds
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -68,6 +70,7 @@ Disclaimer:
     }
 
     private val dbHelper = NcmcDatabaseHelper(application)
+    private val prefs = application.getSharedPreferences("ncmc_prefs", Context.MODE_PRIVATE)
     private val _isProcessing = MutableStateFlow(false)
     private var statusResetJob: Job? = null
 
@@ -77,7 +80,24 @@ Disclaimer:
     private val _isNfcEnabled = MutableStateFlow(false)
     val isNfcEnabled: StateFlow<Boolean> = _isNfcEnabled.asStateFlow()
 
+    private val _isMaskPanEnabled = MutableStateFlow(prefs.getBoolean("mask_pan", false))
+    val isMaskPanEnabled: StateFlow<Boolean> = _isMaskPanEnabled.asStateFlow()
+
+    fun setMaskPanEnabled(enabled: Boolean) {
+        _isMaskPanEnabled.value = enabled
+        prefs.edit { putBoolean("mask_pan", enabled) }
+    }
+
+    private val _showSettingsDialog = MutableStateFlow(false)
+    val showSettingsDialog: StateFlow<Boolean> = _showSettingsDialog.asStateFlow()
+
+    fun setShowSettingsDialog(show: Boolean) {
+        _showSettingsDialog.value = show
+    }
+
+    @Suppress("unused")
     private val _lastScannedCard = MutableStateFlow<NcmcCard?>(null)
+    @Suppress("unused")
     val lastScannedCard: StateFlow<NcmcCard?> = _lastScannedCard.asStateFlow()
 
     private val _allSavedCards = MutableStateFlow<List<NcmcCard>>(emptyList())
@@ -107,7 +127,7 @@ Disclaimer:
 
         if (isError) {
             statusResetJob = viewModelScope.launch(Dispatchers.Main) {
-                delay(3000L)
+                delay(3.seconds)
                 _statusMessage.value = DEFAULT_STATUS_MESSAGE
             }
         }
@@ -188,9 +208,7 @@ Disclaimer:
 
     fun exportCardsToJson(context: Context, uri: Uri, selectedPans: List<String>? = null, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            var success: Boolean
-            var resultMessage = ""
-            try {
+            val (success, resultMessage) = try {
                 val allCards = dbHelper.getAllCards()
                 val cards = if (selectedPans != null) {
                     allCards.filter { it.pan in selectedPans }
@@ -264,15 +282,12 @@ Disclaimer:
                     outputStream.write(jsonString.toByteArray(Charsets.UTF_8))
                     outputStream.flush()
                     outputStream.close()
-                    success = true
-                    resultMessage = "Successfully exported ${cards.size} card(s) to JSON."
+                    true to "Successfully exported ${cards.size} card(s) to JSON."
                 } else {
-                    success = false
-                    resultMessage = "Failed to open export file."
+                    false to "Failed to open export file."
                 }
             } catch (e: Exception) {
-                success = false
-                resultMessage = "Export failed: ${e.message}"
+                false to "Export failed: ${e.message}"
             }
 
             withContext(Dispatchers.Main) {
@@ -283,13 +298,10 @@ Disclaimer:
 
     fun importCardsFromJson(context: Context, uri: Uri, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            var success = false
-            var resultMessage = ""
-            try {
+            val (success, resultMessage) = try {
                 val inputStream = context.contentResolver.openInputStream(uri)
                 if (inputStream == null) {
-                    success = false
-                    resultMessage = "Failed to open import file."
+                    false to "Failed to open import file."
                 } else {
                     val jsonString = inputStream.bufferedReader().use { it.readText() }
                     inputStream.close()
@@ -379,12 +391,10 @@ Disclaimer:
                     }
 
                     loadSavedCards()
-                    success = true
-                    resultMessage = "Successfully imported $importedCount card(s)."
+                    true to "Successfully imported $importedCount card(s)."
                 }
             } catch (e: Exception) {
-                success = false
-                resultMessage = "Import failed: ${e.message}"
+                false to "Import failed: ${e.message}"
             }
 
             withContext(Dispatchers.Main) {
@@ -402,6 +412,7 @@ Disclaimer:
         _currentScreen.value = Screen.CARD_DETAILS
     }
 
+    @Suppress("unused")
     fun deleteCard(pan: String) {
         viewModelScope.launch(Dispatchers.IO) {
             dbHelper.deleteCard(pan)

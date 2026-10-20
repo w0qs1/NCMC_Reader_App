@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
+import androidx.core.content.edit
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -95,7 +96,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < newVersion) {
             try {
-                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { clear() }
                 db.close()
                 val dbFile = context.getDatabasePath(DATABASE_NAME)
                 if (dbFile.exists()) {
@@ -200,7 +201,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                             tmpFile.renameTo(dbFile)
                         }
                         if (newEtag.isNotEmpty()) {
-                            prefs.edit().putString(KEY_ETAG, newEtag).apply()
+                            prefs.edit { putString(KEY_ETAG, newEtag) }
                         }
                         Log.d(TAG, "Successfully updated $DATABASE_NAME from GitHub (${dbFile.length()} bytes)")
                         onUpdated?.invoke()
@@ -273,7 +274,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                     }
                 }
 
-                val finalStationName = stopName.ifBlank { "Terminal #0x$termHex" }
+                val finalStationName = stopName.ifBlank { "Terminal 0x$termHex" }
                 val resolved = ResolvedStation(opName, mode, finalStationName, linesList)
                 Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op: $opName, Station: $finalStationName, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
                 return resolved
@@ -287,8 +288,8 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                 val opName = opCursor.getString(0)
                 val mode = opCursor.getString(1)
                 opCursor.close()
-                val resolved = ResolvedStation(opName, mode, "Terminal #0x$termHex", emptyList())
-                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op only: $opName, Station: Terminal #0x$termHex")
+                val resolved = ResolvedStation(opName, mode, "Terminal 0x$termHex", emptyList())
+                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op only: $opName, Station: Terminal 0x$termHex")
                 return resolved
             }
             opCursor.close()
@@ -305,7 +306,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
     fun resolveStationByName(stationName: String): ResolvedStation? {
         val db = try {
             readableDatabase
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             return null
         }
 

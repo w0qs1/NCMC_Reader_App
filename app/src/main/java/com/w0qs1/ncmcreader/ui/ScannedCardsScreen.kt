@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.w0qs1.ncmcreader.data.NcmcCard
+import com.w0qs1.ncmcreader.nfc.maskPan
 import com.w0qs1.ncmcreader.viewmodel.MainViewModel
 import com.w0qs1.ncmcreader.viewmodel.Screen
 import java.text.SimpleDateFormat
@@ -35,6 +36,7 @@ fun ScannedCardsScreen(
 ) {
     val context = LocalContext.current
     val savedCards by viewModel.allSavedCards.collectAsState()
+    val isMaskPanEnabled by viewModel.isMaskPanEnabled.collectAsState()
 
     val selectedPans = remember { mutableStateListOf<String>() }
     val isSelectionMode = selectedPans.isNotEmpty()
@@ -129,6 +131,13 @@ fun ScannedCardsScreen(
                                 onDismissRequest = { showKebabMenu = false }
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Settings") },
+                                    onClick = {
+                                        showKebabMenu = false
+                                        viewModel.setShowSettingsDialog(true)
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Import Cards") },
                                     onClick = {
                                         showKebabMenu = false
@@ -184,6 +193,7 @@ fun ScannedCardsScreen(
                         val isSelected = selectedPans.contains(card.pan)
                         ScannedCardItem(
                             card = card,
+                            isMaskPanEnabled = isMaskPanEnabled,
                             isSelected = isSelected,
                             isSelectionMode = isSelectionMode,
                             onClick = {
@@ -207,8 +217,7 @@ fun ScannedCardsScreen(
                                         selectedPans.add(card.pan)
                                     }
                                 }
-                            },
-                            onDelete = { viewModel.deleteCard(card.pan) }
+                            }
                         )
                     }
                 }
@@ -269,11 +278,11 @@ fun ScannedCardsScreen(
 @Composable
 fun ScannedCardItem(
     card: NcmcCard,
+    isMaskPanEnabled: Boolean = false,
     isSelected: Boolean,
     isSelectionMode: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    onDelete: () -> Unit
+    onLongClick: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val formattedDate = dateFormat.format(Date(card.lastScannedAt))
@@ -320,7 +329,7 @@ fun ScannedCardItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = card.pan,
+                        text = if (isMaskPanEnabled) maskPan(card.pan) else card.pan,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
