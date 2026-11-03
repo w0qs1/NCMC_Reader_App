@@ -1,8 +1,6 @@
 package com.w0qs1.ncmcreader.ui
 
 import android.content.ClipData
-import android.content.Intent
-import androidx.core.net.toUri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -12,12 +10,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.w0qs1.ncmcreader.R
 import com.w0qs1.ncmcreader.viewmodel.MainViewModel
 import com.w0qs1.ncmcreader.viewmodel.Screen
 import kotlinx.coroutines.launch
@@ -33,12 +28,10 @@ fun CardDetailsScreen(
     val isMaskTimeEnabled by viewModel.isMaskTimeEnabled.collectAsState()
     val isMaskDateEnabled by viewModel.isMaskDateEnabled.collectAsState()
     val isMaskMetadataEnabled by viewModel.isMaskMetadataEnabled.collectAsState()
-    val context = LocalContext.current
     var showKebabMenu by remember { mutableStateOf(false) }
     var showRawLogsDialog by remember { mutableStateOf(false) }
     val clipboard = LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
-    val issuesUrl = stringResource(R.string.github_issues_url)
 
     Scaffold(
         topBar = {
@@ -74,14 +67,6 @@ fun CardDetailsScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Report/Add New Station/Operator") },
-                                onClick = {
-                                    showKebabMenu = false
-                                    val intent = Intent(Intent.ACTION_VIEW, issuesUrl.toUri())
-                                    context.startActivity(intent)
-                                }
-                            )
-                            DropdownMenuItem(
                                 text = { Text("View Raw Card Logs") },
                                 onClick = {
                                     showKebabMenu = false
@@ -105,6 +90,7 @@ fun CardDetailsScreen(
             selectedCard?.let { card ->
                 CardDetailsView(
                     card = card,
+                    viewModel = viewModel,
                     isMaskPanEnabled = isMaskPanEnabled,
                     isMaskTimeEnabled = isMaskTimeEnabled,
                     isMaskDateEnabled = isMaskDateEnabled,

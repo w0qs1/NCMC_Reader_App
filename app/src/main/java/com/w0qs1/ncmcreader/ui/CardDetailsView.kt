@@ -1,8 +1,13 @@
 package com.w0qs1.ncmcreader.ui
 
+import android.content.Intent
 import android.util.Log
+import androidx.core.net.toUri
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -19,19 +24,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.toColorInt
 import com.w0qs1.ncmcreader.data.NcmcCard
 import com.w0qs1.ncmcreader.data.NcmcOperatorDatabaseHelper
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import com.w0qs1.ncmcreader.data.TransitLine
 import com.w0qs1.ncmcreader.nfc.maskPan
 import com.w0qs1.ncmcreader.nfc.maskTimestamp
+import com.w0qs1.ncmcreader.utils.HapticFeedbackUtils
+import com.w0qs1.ncmcreader.viewmodel.MainViewModel
+import java.net.URLEncoder
 import java.util.Locale
-import androidx.core.graphics.toColorInt
 
 @Composable
 fun CardDetailsView(
     card: NcmcCard,
     modifier: Modifier = Modifier,
+    viewModel: MainViewModel? = null,
     isMaskPanEnabled: Boolean = false,
     isMaskTimeEnabled: Boolean = false,
     isMaskDateEnabled: Boolean = false,
@@ -39,6 +48,23 @@ fun CardDetailsView(
 ) {
     val context = LocalContext.current
     val opDbHelper = remember(context) { NcmcOperatorDatabaseHelper(context) }
+    val tutorialStep = viewModel?.tutorialStep?.collectAsState()?.value ?: 0
+
+    val mainCardModifier = if (tutorialStep == 2) {
+        Modifier
+            .fillMaxWidth()
+            .border(3.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(12.dp))
+    } else {
+        Modifier.fillMaxWidth()
+    }
+
+    val expiryCardModifier = if (tutorialStep == 3) {
+        Modifier
+            .fillMaxWidth()
+            .border(3.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(12.dp))
+    } else {
+        Modifier.fillMaxWidth()
+    }
 
     Column(
         modifier = modifier.fillMaxWidth()
@@ -51,7 +77,7 @@ fun CardDetailsView(
         ) {
             // Main Card Info Header
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = mainCardModifier,
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             ) {
@@ -124,7 +150,7 @@ fun CardDetailsView(
 
             // Secondary Metadata Grid
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = expiryCardModifier,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -158,7 +184,7 @@ fun CardDetailsView(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        // Trip cards with reduced side margins (6.dp, no negative padding)
+        // Trip cards with reduced side margins (6.dp)
         if (card.ticketHistory.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -183,6 +209,7 @@ fun CardDetailsView(
                     TicketHistoryRow(
                         item = item,
                         opDbHelper = opDbHelper,
+                        viewModel = viewModel,
                         isMaskTimeEnabled = isMaskTimeEnabled,
                         isMaskDateEnabled = isMaskDateEnabled
                     )
@@ -208,13 +235,18 @@ fun DetailField(label: String, value: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TicketHistoryRow(
     item: TicketHistoryItem,
     opDbHelper: NcmcOperatorDatabaseHelper?,
+    viewModel: MainViewModel? = null,
     isMaskTimeEnabled: Boolean = false,
     isMaskDateEnabled: Boolean = false
 ) {
+    val context = LocalContext.current
+    var showReportDialog by remember { mutableStateOf(false) }
+
     val badgeType = item.ticketType.uppercase(Locale.US)
     val badgeColor = when {
         "ENTRY" in badgeType -> Color(0xFF2E7D32)
@@ -280,8 +312,25 @@ fun TicketHistoryRow(
         }
     }
 
+    val tutorialStep = viewModel?.tutorialStep?.collectAsState()?.value ?: 0
+    val isTripHighlighted = tutorialStep == 4 || tutorialStep == 5
+    val tripCardModifier = if (isTripHighlighted) {
+        Modifier
+            .fillMaxWidth()
+            .border(3.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(12.dp))
+    } else {
+        Modifier.fillMaxWidth()
+    }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = tripCardModifier
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    HapticFeedbackUtils.performScanHaptic(context)
+                    showReportDialog = true
+                }
+            ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
@@ -385,6 +434,84 @@ fun TicketHistoryRow(
                 }
             }
         }
+    }
+
+    if (showReportDialog) {
+        val opName = resolved?.operatorName ?: "Unknown Operator"
+        val opHex = String.format(Locale.US, "0x%02X%04X", item.acquirerId, item.operatorId)
+        val termHex = String.format(Locale.US, "0x%06X", item.terminalId)
+        val stationName = if (resolved != null && !resolved.stationName.startsWith("Terminal") && !resolved.stationName.startsWith("Terminal #")) {
+            resolved.stationName
+        } else {
+            ""
+        }
+        val rawTransitMode = resolved?.transitMode?.uppercase(Locale.US) ?: ""
+        val operatorType = when {
+            "METRO" in rawTransitMode -> "METRO"
+            "TRAIN" in rawTransitMode -> "TRAIN"
+            "TRAM" in rawTransitMode -> "TRAM"
+            "BUS" in rawTransitMode -> "BUS"
+            "MONORAIL" in rawTransitMode -> "MONORAIL"
+            "HSR" in rawTransitMode -> "HSR"
+            "FERRY" in rawTransitMode -> "FERRY"
+            "CABLECAR" in rawTransitMode -> "CABLECAR"
+            "TOLL_ROAD" in rawTransitMode -> "TOLL_ROAD"
+            "PARKING" in rawTransitMode -> "PARKING"
+            "TICKET_MACHINE" in rawTransitMode -> "TICKET_MACHINE"
+            "POS" in rawTransitMode -> "POS"
+            else -> "OTHER"
+        }
+        val linesStr = resolved?.lines?.joinToString(", ") { it.name } ?: ""
+        val title = if (stationName.isNotBlank()) "[Station] $opName - $stationName" else "[Station] $opName"
+
+        AlertDialog(
+            onDismissRequest = { showReportDialog = false },
+            title = { Text("Report to GitHub") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Would you like to report this unknown station/operator to GitHub?\nNo personal data like card number, date and time are sent",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showReportDialog = false
+                        if (viewModel?.tutorialStep?.value == 5) {
+                            viewModel.setTutorialStep(6)
+                        } else {
+                            val url = "https://github.com/w0qs1/ncmc_ids/issues/new?template=app-report.yml&" +
+                                "title=${URLEncoder.encode(title, "UTF-8")}&" +
+                                "operator_id=${URLEncoder.encode(opHex, "UTF-8")}&" +
+                                "operator_name=${URLEncoder.encode(opName, "UTF-8")}&" +
+                                "operator_type=${URLEncoder.encode(operatorType, "UTF-8")}&" +
+                                "station_id=${URLEncoder.encode(termHex, "UTF-8")}&" +
+                                (if (stationName.isNotBlank()) "station_name=${URLEncoder.encode(stationName, "UTF-8")}&" else "") +
+                                "lines=${URLEncoder.encode(linesStr, "UTF-8")}"
+                            val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+                            context.startActivity(intent)
+                        }
+                    }
+                ) {
+                    Text("Report to GitHub")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showReportDialog = false
+                    if (viewModel?.tutorialStep?.value == 5) {
+                        viewModel.setTutorialStep(6)
+                    }
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

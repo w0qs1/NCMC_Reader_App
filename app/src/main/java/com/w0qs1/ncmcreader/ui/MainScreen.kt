@@ -35,6 +35,9 @@ fun MainScreen(
     val isMaskTimeEnabled by viewModel.isMaskTimeEnabled.collectAsState()
     val isMaskDateEnabled by viewModel.isMaskDateEnabled.collectAsState()
     val isMaskMetadataEnabled by viewModel.isMaskMetadataEnabled.collectAsState()
+    val updateAvailable by viewModel.updateAvailable.collectAsState()
+    val downloadingUpdate by viewModel.downloadingUpdate.collectAsState()
+    val updateDownloadStatus by viewModel.updateDownloadStatus.collectAsState()
 
     var showKebabMenu by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
@@ -178,6 +181,38 @@ fun MainScreen(
                     )
                 }
 
+                if (updateAvailable) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { viewModel.downloadAndInstallUpdate(context) },
+                        enabled = !downloadingUpdate,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (downloadingUpdate) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = "Download new update APK",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                    if (updateDownloadStatus != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = updateDownloadStatus ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
                 val enabledCount = listOf(isMaskPanEnabled, isMaskTimeEnabled, isMaskDateEnabled, isMaskMetadataEnabled).count { it }
                 if (enabledCount > 0) {
                     Spacer(modifier = Modifier.height(12.dp))
@@ -222,6 +257,20 @@ fun MainScreen(
                             showKebabMenu = false
                             val intent = Intent(Intent.ACTION_VIEW, issuesUrl.toUri())
                             context.startActivity(intent)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("View Disclaimer") },
+                        onClick = {
+                            showKebabMenu = false
+                            viewModel.showDisclaimerAgain()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Show Tutorial") },
+                        onClick = {
+                            showKebabMenu = false
+                            viewModel.startTutorial()
                         }
                     )
                     DropdownMenuItem(

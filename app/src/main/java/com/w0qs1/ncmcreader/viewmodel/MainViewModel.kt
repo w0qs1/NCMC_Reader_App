@@ -2,10 +2,12 @@ package com.w0qs1.ncmcreader.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.tech.IsoDep
 import android.util.Log
+import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +19,9 @@ import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import com.w0qs1.ncmcreader.nfc.NcmcCardReader
 import com.w0qs1.ncmcreader.nfc.roundTo2Decimals
 import com.w0qs1.ncmcreader.utils.HapticFeedbackUtils
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -74,6 +79,130 @@ Disclaimer:
     private val _isProcessing = MutableStateFlow(false)
     private var statusResetJob: Job? = null
 
+    init {
+        checkForAppUpdate()
+    }
+
+    private val _updateAvailable = MutableStateFlow(false)
+    val updateAvailable: StateFlow<Boolean> = _updateAvailable.asStateFlow()
+
+    private val _downloadingUpdate = MutableStateFlow(false)
+    val downloadingUpdate: StateFlow<Boolean> = _downloadingUpdate.asStateFlow()
+
+    private val _updateDownloadStatus = MutableStateFlow<String?>(null)
+    val updateDownloadStatus: StateFlow<String?> = _updateDownloadStatus.asStateFlow()
+
+    private var latestApkUrl: String? = null
+
+    private fun parseVersion(versionStr: String): Pair<Int, Int> {
+        val cleaned = versionStr.trim().removePrefix("v").removePrefix("V")
+        val parts = cleaned.split(".")
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        return Pair(major, minor)
+    }
+
+    fun checkForAppUpdate() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val url = URL("https://api.github.com/repos/w0qs1/NCMC_Reader_App/releases/latest")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Accept", "application/vnd.github+json")
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+
+                if (connection.responseCode == 200) {
+                    val responseString = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(responseString)
+                    val tagName = json.optString("tag_name", "")
+                    val assets = json.optJSONArray("assets")
+
+                    var apkUrl: String? = null
+                    if (assets != null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val name = asset.optString("name", "")
+                            if (name.endsWith(".apk", ignoreCase = true)) {
+                                apkUrl = asset.optString("browser_download_url", "")
+                                break
+                            }
+                        }
+                    }
+
+                    if (tagName.isNotEmpty()) {
+                        val (appMajor, appMinor) = parseVersion(getAppVersionName())
+                        val (ghMajor, ghMinor) = parseVersion(tagName)
+                        val isNewer = (ghMajor > appMajor) || (ghMajor == appMajor && ghMinor > appMinor)
+
+                        if (isNewer && !apkUrl.isNullOrEmpty()) {
+                            latestApkUrl = apkUrl
+                            _updateAvailable.value = true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Error checking for app update", e)
+            }
+        }
+    }
+
+    fun downloadAndInstallUpdate(context: Context) {
+        val urlStr = latestApkUrl ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            _downloadingUpdate.value = true
+            _updateDownloadStatus.value = "Downloading update..."
+            try {
+                val url = URL(urlStr)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.requestMethod = "GET"
+
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val apkFile = File(context.cacheDir, "update.apk")
+                    connection.inputStream.use { input ->
+                        apkFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    _updateDownloadStatus.value = "Download complete. Opening installer..."
+                    _downloadingUpdate.value = false
+
+                    withContext(Dispatchers.Main) {
+                        installApk(context, apkFile)
+                    }
+                } else {
+                    _updateDownloadStatus.value = "Failed to download update (HTTP ${connection.responseCode})"
+                    _downloadingUpdate.value = false
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Download update failed", e)
+                _updateDownloadStatus.value = "Download failed: ${e.message}"
+                _downloadingUpdate.value = false
+            }
+        }
+    }
+
+    private fun installApk(context: Context, apkFile: File) {
+        try {
+            val apkUri: Uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("MainViewModel", "Failed to start installer", e)
+        }
+    }
+
     private val _isNfcSupported = MutableStateFlow(true)
     val isNfcSupported: StateFlow<Boolean> = _isNfcSupported.asStateFlow()
 
@@ -123,6 +252,96 @@ Disclaimer:
 
     fun setShowSettingsDialog(show: Boolean) {
         _showSettingsDialog.value = show
+    }
+
+    private val _showDisclaimerDialog = MutableStateFlow(!prefs.getBoolean("disclaimer_accepted", false))
+    val showDisclaimerDialog: StateFlow<Boolean> = _showDisclaimerDialog.asStateFlow()
+
+    fun acceptDisclaimer() {
+        _showDisclaimerDialog.value = false
+        prefs.edit { putBoolean("disclaimer_accepted", true) }
+        if (!prefs.getBoolean("tutorial_completed", false)) {
+            startTutorial()
+        }
+    }
+
+    fun showDisclaimerAgain() {
+        prefs.edit { putBoolean("disclaimer_accepted", false) }
+        _showDisclaimerDialog.value = true
+    }
+
+    private val _tutorialStep = MutableStateFlow(0)
+    val tutorialStep: StateFlow<Int> = _tutorialStep.asStateFlow()
+
+    fun startTutorial() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val sampleCard = NcmcCard(
+                pan = "8100001234567899",
+                expiryDate = "01/31",
+                effectiveDate = "01/26",
+                ncmcVersion = "3.1",
+                cardLanguage = "English",
+                atc = 42,
+                currentBalance = 245.50,
+                cardTitle = "Sample NCMC Card",
+                ticketHistory = listOf(
+                    TicketHistoryItem(
+                        cardPan = "8100001234567899",
+                        ticketType = "EXIT",
+                        stationOrLocation = "Terminal #0x00E140",
+                        timestamp = "2026-05-25 14:33:00",
+                        amount = 30.00,
+                        balance = 245.50,
+                        acquirerId = 11,
+                        operatorId = 6013,
+                        terminalId = 57664
+                    )
+                )
+            )
+            dbHelper.saveOrUpdateCard(sampleCard)
+            loadSavedCards()
+
+            withContext(Dispatchers.Main) {
+                _selectedCard.value = sampleCard
+                _currentScreen.value = Screen.MAIN
+                _tutorialStep.value = 1
+                HapticFeedbackUtils.performScanHaptic(getApplication())
+                setStatusMessage("Simulating sample card scan...", isError = false)
+            }
+
+            delay(1500)
+
+            withContext(Dispatchers.Main) {
+                HapticFeedbackUtils.performSuccessHaptic(getApplication())
+                setStatusMessage(DEFAULT_STATUS_MESSAGE, isError = false)
+                _currentScreen.value = Screen.CARD_DETAILS
+                _tutorialStep.value = 2
+            }
+        }
+    }
+
+    fun advanceTutorialStep() {
+        val current = _tutorialStep.value
+        if (current in 2..4) {
+            _tutorialStep.value = current + 1
+        }
+    }
+
+    fun setTutorialStep(step: Int) {
+        _tutorialStep.value = step
+    }
+
+    fun finishTutorial() {
+        viewModelScope.launch(Dispatchers.IO) {
+            dbHelper.deleteCard("8100001234567899")
+            loadSavedCards()
+            prefs.edit { putBoolean("tutorial_completed", true) }
+            withContext(Dispatchers.Main) {
+                _tutorialStep.value = 0
+                _selectedCard.value = null
+                _currentScreen.value = Screen.MAIN
+            }
+        }
     }
 
     @Suppress("unused")
