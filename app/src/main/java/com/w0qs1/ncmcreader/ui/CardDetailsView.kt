@@ -298,16 +298,18 @@ fun TicketHistoryRow(
 
     val displayStation = remember(resolved, item) {
         if (resolved != null) {
-            if (resolved.stationName.startsWith("Terminal #") || resolved.stationName.startsWith("Terminal 0x")) {
-                "${resolved.operatorName} (${resolved.stationName})"
-            } else {
-                "${resolved.operatorName} - ${resolved.stationName}"
-            }
+            val station = resolved.stationName.replace("Terminal ", "Unknown ")
+            "$station | ${resolved.operatorName}"
         } else {
-            if (item.stationOrLocation.startsWith("Terminal 0x") || item.stationOrLocation.startsWith("Terminal #")) {
-                "Unknown Operator (${item.stationOrLocation})"
+            val rawLoc = item.stationOrLocation.replace("Terminal ", "Unknown ")
+            if (rawLoc.startsWith("Unknown 0x") || rawLoc.startsWith("Unknown #")) {
+                "$rawLoc | Unknown Operator"
+            } else if (rawLoc.contains(" - ")) {
+                val operator = rawLoc.substringBefore(" - ").trim()
+                val station = rawLoc.substringAfter(" - ").trim()
+                "$station | $operator"
             } else {
-                "Unknown Operator - ${item.stationOrLocation}"
+                "$rawLoc | Unknown Operator"
             }
         }
     }
@@ -440,7 +442,7 @@ fun TicketHistoryRow(
         val opName = resolved?.operatorName ?: "Unknown Operator"
         val opHex = String.format(Locale.US, "0x%02X%04X", item.acquirerId, item.operatorId)
         val termHex = String.format(Locale.US, "0x%06X", item.terminalId)
-        val stationName = if (resolved != null && !resolved.stationName.startsWith("Terminal") && !resolved.stationName.startsWith("Terminal #")) {
+        val stationName = if (resolved != null && !resolved.stationName.startsWith("Unknown") && !resolved.stationName.startsWith("Unknown #")) {
             resolved.stationName
         } else {
             ""

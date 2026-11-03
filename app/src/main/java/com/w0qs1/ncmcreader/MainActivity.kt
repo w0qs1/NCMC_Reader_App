@@ -363,7 +363,7 @@ fun AppNavigation(viewModel: MainViewModel) {
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Show time as xx:xx (keeps date intact)",
+                                text = "Show time as xx:xx",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -374,31 +374,29 @@ fun AppNavigation(viewModel: MainViewModel) {
                         )
                     }
 
-                    // 3. Mask Transaction Date (Shown only when Mask Time is enabled)
-                    if (isMaskTimeEnabled) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Mask Transaction Date",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Show date as XXXX-XX-XX",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = isMaskDateEnabled,
-                                onCheckedChange = { viewModel.setMaskDateEnabled(it) }
+                    // 3. Mask Transaction Date
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Mask Transaction Date",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Show date as XXXX-XX-XX",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        Switch(
+                            checked = isMaskDateEnabled,
+                            onCheckedChange = { viewModel.setMaskDateEnabled(it) }
+                        )
                     }
                 }
             },

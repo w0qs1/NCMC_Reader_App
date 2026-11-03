@@ -166,7 +166,7 @@ fun maskPan(pan: String): String {
 }
 
 fun maskTimestamp(timestamp: String, maskTime: Boolean, maskDate: Boolean): String {
-    if (!maskTime) return timestamp
+    if (!maskTime && !maskDate) return timestamp
 
     val parts = timestamp.split(" ", "T")
     val datePart = parts.getOrNull(0) ?: ""
@@ -178,8 +178,8 @@ fun maskTimestamp(timestamp: String, maskTime: Boolean, maskDate: Boolean): Stri
         datePart
     }
 
-    val maskedTime = if (timePart.isNotBlank()) {
-        timePart.replace(Regex("[0-9a-zA-Z]"), "x")
+    val maskedTime = if (maskTime) {
+        if (timePart.isNotBlank()) timePart.replace(Regex("[0-9a-zA-Z]"), "x") else timePart
     } else {
         timePart
     }

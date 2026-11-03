@@ -110,6 +110,7 @@ class NcmcParserTest {
     fun testMaskTimestamp() {
         val ts = "2026-10-04 14:30"
         assertEquals("2026-10-04 xx:xx", maskTimestamp(ts, maskTime = true, maskDate = false))
+        assertEquals("XXXX-XX-XX 14:30", maskTimestamp(ts, maskTime = false, maskDate = true))
         assertEquals("XXXX-XX-XX xx:xx", maskTimestamp(ts, maskTime = true, maskDate = true))
         assertEquals("2026-10-04 14:30", maskTimestamp(ts, maskTime = false, maskDate = false))
     }

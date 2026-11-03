@@ -232,18 +232,12 @@ Disclaimer:
     fun setMaskTimeEnabled(enabled: Boolean) {
         _isMaskTimeEnabled.value = enabled
         prefs.edit { putBoolean("mask_time", enabled) }
-        if (!enabled) {
-            setMaskDateEnabled(false)
-        }
     }
 
     private val _isMaskDateEnabled = MutableStateFlow(prefs.getBoolean("mask_date", false))
     val isMaskDateEnabled: StateFlow<Boolean> = _isMaskDateEnabled.asStateFlow()
 
     fun setMaskDateEnabled(enabled: Boolean) {
-        if (enabled && !_isMaskTimeEnabled.value) {
-            setMaskTimeEnabled(true)
-        }
         _isMaskDateEnabled.value = enabled
         prefs.edit { putBoolean("mask_date", enabled) }
     }

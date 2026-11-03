@@ -274,7 +274,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                     }
                 }
 
-                val finalStationName = stopName.ifBlank { "Terminal 0x$termHex" }
+                val finalStationName = stopName.ifBlank { "Unknown 0x$termHex" }
                 val resolved = ResolvedStation(opName, mode, finalStationName, linesList)
                 Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op: $opName, Station: $finalStationName, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
                 return resolved
@@ -288,8 +288,8 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                 val opName = opCursor.getString(0)
                 val mode = opCursor.getString(1)
                 opCursor.close()
-                val resolved = ResolvedStation(opName, mode, "Terminal 0x$termHex", emptyList())
-                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op only: $opName, Station: Terminal 0x$termHex")
+                val resolved = ResolvedStation(opName, mode, "Unknown 0x$termHex", emptyList())
+                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op only: $opName, Station: Unknown 0x$termHex")
                 return resolved
             }
             opCursor.close()
@@ -316,7 +316,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
             stationName.trim()
         }
 
-        if (cleanName.isBlank() || cleanName.startsWith("Terminal #")) return null
+        if (cleanName.isBlank() || cleanName.startsWith("Terminal #") || cleanName.startsWith("Unknown #")) return null
 
         val query = """
             SELECT s.id, s.stop_name, o.name, o.mode
