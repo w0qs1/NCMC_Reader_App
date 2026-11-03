@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -309,7 +310,7 @@ Disclaimer:
                 setStatusMessage("Simulating sample card scan...", isError = false)
             }
 
-            delay(1500)
+            delay(1500.milliseconds)
 
             withContext(Dispatchers.Main) {
                 HapticFeedbackUtils.performSuccessHaptic(getApplication())
