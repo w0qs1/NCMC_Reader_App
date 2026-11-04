@@ -439,7 +439,7 @@ fun TicketHistoryRow(
     }
 
     if (showReportDialog) {
-        val opName = resolved?.operatorName ?: "Unknown Operator"
+        val opName = resolved?.operatorName ?: ""
         val opHex = String.format(Locale.US, "0x%02X%04X", item.acquirerId, item.operatorId)
         val termHex = String.format(Locale.US, "0x%06X", item.terminalId)
         val stationName = if (resolved != null && !resolved.stationName.startsWith("Unknown") && !resolved.stationName.startsWith("Unknown #")) {
@@ -464,7 +464,12 @@ fun TicketHistoryRow(
             else -> "OTHER"
         }
         val linesStr = resolved?.lines?.joinToString(", ") { it.name } ?: ""
-        val title = if (stationName.isNotBlank()) "[Station] $opName - $stationName" else "[Station] $opName"
+        val title = when {
+            opName.isNotBlank() && stationName.isNotBlank() -> "[Update] $opName | $stationName"
+            opName.isNotBlank() && stationName.isBlank() -> "[New Station] $opName | $termHex"
+            opName.isBlank() && stationName.isBlank() -> "[New Operator] $opHex"
+            else -> "[Other] $opHex | $termHex"
+        }
 
         AlertDialog(
             onDismissRequest = { showReportDialog = false },
@@ -490,7 +495,7 @@ fun TicketHistoryRow(
                             val url = "https://github.com/w0qs1/ncmc_ids/issues/new?template=app-report.yml&" +
                                 "title=${URLEncoder.encode(title, "UTF-8")}&" +
                                 "operator_id=${URLEncoder.encode(opHex, "UTF-8")}&" +
-                                "operator_name=${URLEncoder.encode(opName, "UTF-8")}&" +
+                                (if (opName.isNotBlank()) "operator_name=${URLEncoder.encode(opName, "UTF-8")}&" else "") +
                                 "operator_type=${URLEncoder.encode(operatorType, "UTF-8")}&" +
                                 "station_id=${URLEncoder.encode(termHex, "UTF-8")}&" +
                                 (if (stationName.isNotBlank()) "station_name=${URLEncoder.encode(stationName, "UTF-8")}&" else "") +

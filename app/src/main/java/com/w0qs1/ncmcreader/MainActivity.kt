@@ -279,6 +279,7 @@ fun AppNavigation(viewModel: MainViewModel) {
             dismissButton = {
                 TextButton(
                     onClick = {
+                        viewModel.declineDisclaimer()
                         (context as? Activity)?.finishAffinity()
                     }
                 ) {

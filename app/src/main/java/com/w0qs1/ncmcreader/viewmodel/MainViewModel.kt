@@ -260,8 +260,18 @@ Disclaimer:
         }
     }
 
+    fun declineDisclaimer() {
+        prefs.edit {
+            putBoolean("disclaimer_accepted", false)
+            remove("tutorial_completed")
+        }
+    }
+
     fun showDisclaimerAgain() {
-        prefs.edit { putBoolean("disclaimer_accepted", false) }
+        prefs.edit {
+            putBoolean("disclaimer_accepted", false)
+            remove("tutorial_completed")
+        }
         _showDisclaimerDialog.value = true
     }
 
@@ -283,8 +293,8 @@ Disclaimer:
                     TicketHistoryItem(
                         cardPan = "8100001234567899",
                         ticketType = "EXIT",
-                        stationOrLocation = "Terminal #0x00E140",
-                        timestamp = "2026-05-25 14:33:00",
+                        stationOrLocation = "Central",
+                        timestamp = "2026-05-25 14:33",
                         amount = 30.00,
                         balance = 245.50,
                         acquirerId = 11,
@@ -363,6 +373,9 @@ Disclaimer:
         checkNfcStatus()
         loadSavedCards()
         NcmcOperatorDatabaseHelper(application).checkForRemoteUpdate()
+        if (prefs.getBoolean("disclaimer_accepted", false) && !prefs.getBoolean("tutorial_completed", false)) {
+            startTutorial()
+        }
     }
 
     fun setStatusMessage(msg: String, isError: Boolean = false) {
