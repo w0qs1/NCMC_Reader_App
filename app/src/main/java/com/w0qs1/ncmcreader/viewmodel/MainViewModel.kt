@@ -430,7 +430,8 @@ Disclaimer:
             _isLoading.value = true
             setStatusMessage("Reading NCMC card...", isError = false)
             try {
-                val reader = NcmcCardReader(isoDep)
+                val opDbHelper = NcmcOperatorDatabaseHelper(getApplication())
+                val reader = NcmcCardReader(isoDep, opDbHelper)
                 val card = reader.readCard()
 
                 // Success Haptic: Double positive tone for successful NCMC card read

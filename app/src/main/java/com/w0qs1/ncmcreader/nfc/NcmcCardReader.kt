@@ -3,6 +3,7 @@ package com.w0qs1.ncmcreader.nfc
 import android.nfc.tech.IsoDep
 import android.util.Log
 import com.w0qs1.ncmcreader.data.NcmcCard
+import com.w0qs1.ncmcreader.data.NcmcOperatorDatabaseHelper
 import com.w0qs1.ncmcreader.data.RawRecordItem
 import com.w0qs1.ncmcreader.data.TicketHistoryItem
 import java.text.SimpleDateFormat
@@ -16,7 +17,10 @@ fun Double.roundTo2Decimals(): Double {
     return round(this * 100.0) / 100.0
 }
 
-class NcmcCardReader(private val isoDep: IsoDep) {
+class NcmcCardReader(
+    private val isoDep: IsoDep,
+    private val operatorDatabaseHelper: NcmcOperatorDatabaseHelper? = null
+) {
 
     companion object {
         private const val TAG = "NCMC_READER"
@@ -516,13 +520,9 @@ class NcmcCardReader(private val isoDep: IsoDep) {
     ): List<TicketHistoryItem> {
         val accumulatedItems = mutableListOf<RawMergedItem>()
 
-        // Read from the last (oldest) history log down to record 1 (newest)
-        val sortedRecords = logRecordDecodedList.sortedByDescending { it.recordNum }
-
-        for (rec in sortedRecords) {
-            val recordItems = mutableListOf<RawMergedItem>()
-
-            // 1. Read history entries first (history has exact amount, proper order)
+        // ALWAYS follow the card's order of transactions. Do not modify the transaction history order.
+        for (rec in logRecordDecodedList) {
+            // 1. Read history entries first
             for (h in rec.historyRecords) {
                 if (h.minutes == 0 && h.seqNum == 0 && h.terminalId == 0) continue
 
@@ -537,7 +537,7 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                     status = "Entry"
                 }
 
-                recordItems.add(
+                accumulatedItems.add(
                     RawMergedItem(
                         minutes = h.minutes,
                         seq = h.seqNum,
@@ -553,17 +553,20 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                 )
             }
 
-            // 2. Read validation data ONLY if same is not present in history (match using terminalId and minutes)
+            // 2. Read validation data ONLY if same is not present in history (match using acquirerId, operatorId, terminalId and minutes)
             rec.valEvent?.let { v ->
                 if (v.minutes == 0 && v.terminalId == 0 && v.acquirerId == 0) return@let
 
                 val existsInHistory = rec.historyRecords.any { h ->
-                    h.terminalId == v.terminalId && h.minutes == v.minutes
+                    h.acquirerId == v.acquirerId &&
+                    h.operatorId == v.operatorId &&
+                    h.terminalId == v.terminalId &&
+                    h.minutes == v.minutes
                 }
 
                 if (!existsInHistory) {
                     val status = v.statusStr
-                    recordItems.add(
+                    accumulatedItems.add(
                         RawMergedItem(
                             minutes = v.minutes,
                             seq = 0,
@@ -579,39 +582,40 @@ class NcmcCardReader(private val isoDep: IsoDep) {
                     )
                 }
             }
-
-            // 3. Discard duplicate entries from newer SFI 16 log (match based on terminal id, date/time [minutes], and status)
-            for (item in recordItems) {
-                val isDuplicate = accumulatedItems.any { existing ->
-                    existing.terminalId == item.terminalId &&
-                    existing.minutes == item.minutes &&
-                    existing.status == item.status
-                }
-                if (!isDuplicate) {
-                    accumulatedItems.add(item)
-                }
-            }
         }
 
         val result = mutableListOf<TicketHistoryItem>()
         for (item in accumulatedItems) {
-            val timestampStr = formatMinutesElapsedToLocalTime(effectiveDateMillis, item.minutes)
+            val opTz = operatorDatabaseHelper?.getOperatorTimezone(item.acquirerId, item.operatorId) ?: "IST"
+            val adjustedMinutes = if (opTz.uppercase(Locale.US) == "UTC") item.minutes + 330 else item.minutes
+            val timestampStr = formatMinutesElapsedToLocalTime(effectiveDateMillis, adjustedMinutes)
             val defaultStationName = String.format(Locale.US, "Unknown 0x%06X", item.terminalId)
 
-            result.add(
-                TicketHistoryItem(
-                    cardPan = pan,
-                    ticketType = item.status,
-                    stationOrLocation = defaultStationName,
-                    timestamp = timestampStr,
-                    amount = item.amount.roundTo2Decimals(),
-                    balance = item.balAfter.roundTo2Decimals(),
-                    rawHex = item.rawHex,
-                    acquirerId = item.acquirerId,
-                    operatorId = item.operatorId,
-                    terminalId = item.terminalId
-                )
+            val historyItem = TicketHistoryItem(
+                cardPan = pan,
+                ticketType = item.status,
+                stationOrLocation = defaultStationName,
+                timestamp = timestampStr,
+                amount = item.amount.roundTo2Decimals(),
+                balance = item.balAfter.roundTo2Decimals(),
+                rawHex = item.rawHex,
+                acquirerId = item.acquirerId,
+                operatorId = item.operatorId,
+                terminalId = item.terminalId
             )
+
+            // Deduplication: same timestamp, same terminal id (48bits: acquirerId + operatorId + terminalId), same type (entry/exit/ticket)
+            val isDuplicate = result.any { existing ->
+                existing.timestamp == historyItem.timestamp &&
+                existing.acquirerId == historyItem.acquirerId &&
+                existing.operatorId == historyItem.operatorId &&
+                existing.terminalId == historyItem.terminalId &&
+                existing.ticketType.equals(historyItem.ticketType, ignoreCase = true)
+            }
+
+            if (!isDuplicate) {
+                result.add(historyItem)
+            }
         }
 
         return result

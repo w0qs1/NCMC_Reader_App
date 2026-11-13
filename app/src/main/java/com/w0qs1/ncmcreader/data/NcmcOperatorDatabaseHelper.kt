@@ -20,7 +20,8 @@ data class ResolvedStation(
     val operatorName: String,
     val transitMode: String,
     val stationName: String,
-    val lines: List<TransitLine> = emptyList()
+    val lines: List<TransitLine> = emptyList(),
+    val timezone: String = "IST"
 )
 
 class NcmcOperatorDatabaseHelper(private val context: Context) :
@@ -29,7 +30,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
     companion object {
         private const val TAG = "NCMC_OP_DB"
         private const val DATABASE_NAME = "ncmc.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 4
         private const val PREFS_NAME = "ncmc_op_db_prefs"
         private const val KEY_ETAG = "db_etag"
         private const val DB_GITHUB_URL = "https://raw.githubusercontent.com/w0qs1/NCMC_IDs/main/data/ncmc.db"
@@ -44,7 +45,8 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
             CREATE TABLE IF NOT EXISTS operators (
                 id TEXT NOT NULL PRIMARY KEY,
                 name TEXT NOT NULL,
-                mode TEXT NOT NULL
+                mode TEXT NOT NULL,
+                timezone TEXT NOT NULL DEFAULT 'IST'
             )
         """.trimIndent()
 
@@ -233,7 +235,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
 
         // Query stations with wildcard matching where fewest '?' wildcards win
         val stationQuery = """
-            SELECT s.id, s.stop_name, o.name, o.mode,
+            SELECT s.id, s.stop_name, o.name, o.mode, o.timezone,
                    (length(s.reader_id) - length(replace(s.reader_id, '?', ''))) AS wildcard_count
             FROM stations s
             JOIN operators o ON o.id = s.operator_id
@@ -250,6 +252,16 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                 val stopName = cursor.getString(1)
                 val opName = cursor.getString(2)
                 val mode = cursor.getString(3)
+                var timezone = "IST"
+                try {
+                    val tzIdx = cursor.getColumnIndex("timezone")
+                    if (tzIdx != -1) {
+                        val tz = cursor.getString(tzIdx)
+                        if (tz != null && tz.uppercase(Locale.US) == "UTC") {
+                            timezone = "UTC"
+                        }
+                    }
+                } catch (_: Exception) {}
                 cursor.close()
 
                 val linesList = mutableListOf<TransitLine>()
@@ -275,21 +287,31 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                 }
 
                 val finalStationName = stopName.ifBlank { "Unknown 0x$termHex" }
-                val resolved = ResolvedStation(opName, mode, finalStationName, linesList)
-                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op: $opName, Station: $finalStationName, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
+                val resolved = ResolvedStation(opName, mode, finalStationName, linesList, timezone)
+                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op: $opName, Station: $finalStationName, TZ: $timezone, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
                 return resolved
             }
             cursor.close()
 
             // If station not matched, try finding operator name
-            val opQuery = "SELECT name, mode FROM operators WHERE id = ?"
+            val opQuery = "SELECT name, mode, timezone FROM operators WHERE id = ?"
             val opCursor = db.rawQuery(opQuery, arrayOf(opHex))
             if (opCursor.moveToFirst()) {
                 val opName = opCursor.getString(0)
                 val mode = opCursor.getString(1)
+                var timezone = "IST"
+                try {
+                    val tzIdx = opCursor.getColumnIndex("timezone")
+                    if (tzIdx != -1) {
+                        val tz = opCursor.getString(tzIdx)
+                        if (tz != null && tz.uppercase(Locale.US) == "UTC") {
+                            timezone = "UTC"
+                        }
+                    }
+                } catch (_: Exception) {}
                 opCursor.close()
-                val resolved = ResolvedStation(opName, mode, "Unknown 0x$termHex", emptyList())
-                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op only: $opName, Station: Unknown 0x$termHex")
+                val resolved = ResolvedStation(opName, mode, "Unknown 0x$termHex", emptyList(), timezone)
+                Log.d(TAG, "resolveStation ($opHex / $termHex) -> Op only: $opName, TZ: $timezone, Station: Unknown 0x$termHex")
                 return resolved
             }
             opCursor.close()
@@ -319,7 +341,7 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
         if (cleanName.isBlank() || cleanName.startsWith("Terminal #") || cleanName.startsWith("Unknown #")) return null
 
         val query = """
-            SELECT s.id, s.stop_name, o.name, o.mode
+            SELECT s.id, s.stop_name, o.name, o.mode, o.timezone
             FROM stations s
             JOIN operators o ON o.id = s.operator_id
             WHERE s.stop_name COLLATE NOCASE = ?
@@ -333,6 +355,16 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                 val stopName = cursor.getString(1)
                 val opName = cursor.getString(2)
                 val mode = cursor.getString(3)
+                var timezone = "IST"
+                try {
+                    val tzIdx = cursor.getColumnIndex("timezone")
+                    if (tzIdx != -1) {
+                        val tz = cursor.getString(tzIdx)
+                        if (tz != null && tz.uppercase(Locale.US) == "UTC") {
+                            timezone = "UTC"
+                        }
+                    }
+                } catch (_: Exception) {}
                 cursor.close()
 
                 val linesList = mutableListOf<TransitLine>()
@@ -354,13 +386,41 @@ class NcmcOperatorDatabaseHelper(private val context: Context) :
                         lineCursor.close()
                     } catch (_: Exception) {}
                 }
-                val resolved = ResolvedStation(opName, mode, stopName, linesList)
-                Log.d(TAG, "resolveStationByName ($cleanName) -> Op: $opName, Station: $stopName, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
+                val resolved = ResolvedStation(opName, mode, stopName, linesList, timezone)
+                Log.d(TAG, "resolveStationByName ($cleanName) -> Op: $opName, Station: $stopName, TZ: $timezone, Lines: ${linesList.map { "${it.name} (#${it.colour})" }}")
                 return resolved
             }
             cursor.close()
         } catch (_: Exception) {}
 
         return null
+    }
+
+    /**
+     * Gets the timezone ('IST' or 'UTC') for a given operator.
+     */
+    fun getOperatorTimezone(acquirerId: Int, operatorId: Int): String {
+        val db = try {
+            readableDatabase
+        } catch (_: Exception) {
+            return "IST"
+        }
+        val opHex = String.format(Locale.US, "%02X%04X", acquirerId, operatorId)
+        val query = "SELECT timezone FROM operators WHERE id = ?"
+        try {
+            val cursor = db.rawQuery(query, arrayOf(opHex))
+            if (cursor.moveToFirst()) {
+                val tzIdx = cursor.getColumnIndex("timezone")
+                if (tzIdx != -1) {
+                    val tz = cursor.getString(tzIdx)
+                    cursor.close()
+                    if (tz != null && tz.uppercase(Locale.US) == "UTC") {
+                        return "UTC"
+                    }
+                }
+            }
+            cursor.close()
+        } catch (_: Exception) {}
+        return "IST"
     }
 }
